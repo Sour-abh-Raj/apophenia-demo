@@ -16,7 +16,8 @@ import { acceptsJoins, acceptsResponses, applyTransition, atLeast, resultsVisibl
 import type {
   ParticipantPhase, ParticipantView, ProjectorResultsMode, RankingConfig, RankingMode, SessionState, TaskId, TrialResponse, WalkthroughPointer,
 } from "../shared/types.js";
-import { TASK_IDS } from "../shared/types.js";
+import { PREDICTION_QUESTIONS, TASK_IDS, type PredictionKey, type Predictions } from "../shared/types.js";
+import { mean } from "../shared/stats.js";
 import { buildTrialOrder, loadBattery, parseTrialKey, revealContent, STIMULI_DIR, TASK_SUMMARY_NOTES, trialView, walkthroughItems } from "./battery.js";
 import { openDb, tx, type DB } from "./db.js";
 import { EventHub } from "./events.js";
@@ -40,18 +41,19 @@ class HttpError extends Error {
 
 interface SessionRow {
   id: string; code: string; title: string; state: SessionState; instructor_key_hash: string; projector_key_hash: string;
-  walkthrough: string; projector_mode: ProjectorResultsMode; ranking: string | null; discussion_index: number; version: number;
+  walkthrough: string; projector_mode: ProjectorResultsMode; ranking: string | null; ranking_preview: string | null; notice: string | null;
+  discussion_index: number; version: number;
   created_at: string; updated_at: string; opened_at: string | null; locked_at: string | null; released_at: string | null; closed_at: string | null;
 }
 interface ParticipantRow {
   id: string; session_id: string; nickname: string; consent: number; excluded: number; trial_order: string; cursor: number;
-  joined_at: string; last_seen_at: string; finished_at: string | null;
+  joined_at: string; last_seen_at: string; finished_at: string | null; research_consent: number; predictions: string | null;
 }
 
-const DEFAULT_WALKTHROUGH: WalkthroughPointer = { task: "faces", index: 0, revealed: false, view: "item", featuredOnly: true };
+const DEFAULT_WALKTHROUGH: WalkthroughPointer = { task: "faces", index: 0, revealed: false, view: "item", featuredOnly: true, showClass: false };
 const RANK_MODES: RankingMode[] = ["none", "top1", "top3", "bottom1", "bottom3", "topN", "bottomN", "rank", "range", "all"];
 
-export interface AppOptions { dbPath: string; passcode: string; clientDir?: string; disableSse?: boolean }
+export interface AppOptions { dbPath: string; passcode: string; clientDir?: string; disableSse?: boolean; publicUrl?: string }
 
 export function createApp(opts: AppOptions) {
   const db: DB = openDb(opts.dbPath);
@@ -147,7 +149,9 @@ export function createApp(opts: AppOptions) {
     })) as ParticipantView["progress"];
     return {
       session: { title: s.title, code: s.code, state: s.state },
-      me: { id: p.id, nickname: p.nickname, consent: p.consent === 1, finished, answered: p.cursor, total: order.length },
+      me: { id: p.id, nickname: p.nickname, consent: p.consent === 1, researchConsent: p.research_consent === 1, finished, answered: p.cursor, total: order.length,
+        predictions: parsePredictions(p.predictions) },
+      notice: s.state === "TESTING_OPEN" ? s.notice : null,
       phase,
       current: phase === "testing" ? trialView(order, p.cursor) : null,
       next: phase === "testing" ? trialView(order, p.cursor + 1) : null,
@@ -180,22 +184,27 @@ export function createApp(opts: AppOptions) {
 
   function aggregateCounts(s: SessionRow) {
     const rows = participantRows(s);
+    // Excluded entries (test devices, abandoned duplicates) are not class members: they stay in the
+    // participant table but are left out of every count, the lock warning and the projector.
+    const members = rows.filter((r) => !r.excluded);
     const perTask = Object.fromEntries(TASK_IDS.map((tk) => [tk, {
-      started: rows.filter((r) => r.taskProgress[tk].answered > 0).length,
-      completed: rows.filter((r) => r.taskProgress[tk].answered >= r.taskProgress[tk].total).length,
+      started: members.filter((r) => r.taskProgress[tk].answered > 0).length,
+      completed: members.filter((r) => r.taskProgress[tk].answered >= r.taskProgress[tk].total).length,
     }])) as Record<TaskId, { started: number; completed: number }>;
+    const unfinished = members.filter((r) => !r.finished);
     const counts = {
-      joined: rows.length,
-      takingTest: rows.filter((r) => r.status === "in-progress" || r.status === "joined").length,
-      finished: rows.filter((r) => r.finished).length,
-      incomplete: atLeast(s.state, "TEST_LOCKED_AWAITING_DEBRIEF") ? rows.filter((r) => !r.finished).length : 0,
-      notFinishedYet: rows.filter((r) => !r.finished).length,
-      connected: rows.filter((r) => r.connected).length,
-      disconnected: rows.filter((r) => !r.connected).length,
-      declined: rows.filter((r) => !r.consent).length,
-      excluded: rows.filter((r) => r.excluded).length,
+      joined: members.length,
+      notStarted: s.state === "TESTING_OPEN" ? members.filter((r) => r.answered === 0).length : 0,
+      takingTest: members.filter((r) => r.status === "in-progress").length,
+      finished: members.filter((r) => r.finished).length,
+      incomplete: atLeast(s.state, "TEST_LOCKED_AWAITING_DEBRIEF") ? unfinished.length : 0,
+      notFinishedYet: unfinished.length,
+      connected: members.filter((r) => r.connected).length,
+      disconnected: members.filter((r) => !r.connected).length,
+      declined: members.filter((r) => !r.consent).length,
+      excluded: rows.length - members.length,
     };
-    return { rows, counts, perTask };
+    return { rows, counts, perTask, unfinishedNames: unfinished.map((r) => r.nickname) };
   }
 
   function sessionMeta(s: SessionRow) {
@@ -218,6 +227,7 @@ export function createApp(opts: AppOptions) {
       pointer: { ...ptr, index: idx }, total: list.length, totalAll: all.length,
       item: { number: item.number, itemId: item.itemId, stimulus: item.stimulus, featured: item.featured },
       reveal: ptr.revealed ? revealContent(ptr.task, item.itemId, assetBase) : null,
+      classAnswer: ptr.revealed && ptr.showClass ? classAnswerFor(s.id, ptr.task, item.itemId) : null,
       summary: ptr.view === "summary"
         ? { notes: TASK_SUMMARY_NOTES[ptr.task], items: all.map((w) => ({ number: w.number, stimulus: w.stimulus, reveal: revealContent(ptr.task, w.itemId, assetBase) })) }
         : null,
@@ -231,13 +241,29 @@ export function createApp(opts: AppOptions) {
     };
   }
 
+  /** How the (included) class answered one item: aggregate only, from the snapshot frozen at lock. */
+  function classAnswerFor(sid: string, task: TaskId, itemId: string) {
+    const it = getSnapshot(sid)?.classResults[task].items.find((i) => i.itemId === itemId);
+    if (!it || it.pctSaidSignal == null) return null;
+    return { n: it.n, saidSignal: Math.round(it.pctSaidSignal * it.n), pctSaidSignal: it.pctSaidSignal };
+  }
+
+  /** Class predictions (consenting, non-excluded participants) next to the truth. */
+  function predictionSummary(sid: string) {
+    const rows = participantsOf(sid).filter((p) => p.consent === 1 && p.excluded === 0);
+    return Object.fromEntries((Object.keys(PREDICTION_QUESTIONS) as PredictionKey[]).map((k) => {
+      const vals = rows.map((p) => parsePredictions(p.predictions)[k]).filter((v): v is number => Number.isInteger(v)).sort((a, b) => a - b);
+      return [k, { n: vals.length, mean: mean(vals), median: vals.length ? vals[Math.floor((vals.length - 1) / 2)] : null, truth: PREDICTION_QUESTIONS[k].truth, max: PREDICTION_QUESTIONS[k].max }];
+    }));
+  }
+
   /* ----------------------------------------------------------- routes: public */
   app.get("/api/health", (_req, res) => { res.json({ ok: true }); });
 
   app.post("/api/sessions", limit(20), wrap((req) => {
     const { title, passcode } = req.body ?? {};
     if (typeof passcode !== "string" || !safeEq(sha(passcode), sha(opts.passcode))) throw new HttpError(403, "Incorrect instructor passcode");
-    const t = typeof title === "string" && title.trim() ? title.trim().slice(0, 80) : "Apophenia Perception Lab";
+    const t = typeof title === "string" && title.trim() ? title.trim().slice(0, 80) : "Perception & Judgment Lab";
     const id = randomUUID(), hostKey = newSecret(), screenKey = newSecret();
     let code = newCode();
     while (getSessionByCode(code)) code = newCode();
@@ -255,7 +281,7 @@ export function createApp(opts: AppOptions) {
   }));
 
   app.post("/api/join", limit(30), wrap((req) => {
-    const { code, nickname, consent } = req.body ?? {};
+    const { code, nickname, consent, researchConsent } = req.body ?? {};
     const s = typeof code === "string" ? getSessionByCode(code.trim()) : undefined;
     if (!s) throw new HttpError(404, "No session with that code");
     if (!acceptsJoins(s.state)) throw new HttpError(409, "This activity is closed to new participants");
@@ -268,8 +294,8 @@ export function createApp(opts: AppOptions) {
       nick = `${nick} ${k}`;
     }
     const id = randomUUID(), token = newSecret(), ts = now();
-    db.prepare(`INSERT INTO participants (id, session_id, token_hash, nickname, consent, trial_order, joined_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, s.id, sha(token), nick, consent === false ? 0 : 1, JSON.stringify(buildTrialOrder(id)), ts, ts);
+    db.prepare(`INSERT INTO participants (id, session_id, token_hash, nickname, consent, research_consent, trial_order, joined_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, s.id, sha(token), nick, consent === false ? 0 : 1, researchConsent === true ? 1 : 0, JSON.stringify(buildTrialOrder(id)), ts, ts);
     hub.notify(s.id, "staff");
     return { participantId: id, token, nickname: nick };
   }));
@@ -286,6 +312,24 @@ export function createApp(opts: AppOptions) {
     db.prepare("UPDATE participants SET consent = ? WHERE id = ?").run(req.body?.consent ? 1 : 0, p.id);
     hub.notify(s.id, "staff");
     return participantView({ ...p, consent: req.body?.consent ? 1 : 0 }, s);
+  }));
+
+  /** Prediction while waiting: open once a participant has finished (or the test is locked), until results are released. */
+  app.post("/api/p/predict", wrap((req) => {
+    const { p, s } = participantAuth(req);
+    const finished = p.cursor >= (JSON.parse(p.trial_order) as string[]).length;
+    const open = (s.state === "TESTING_OPEN" && finished) || s.state === "TEST_LOCKED_AWAITING_DEBRIEF" || s.state === "ANSWER_WALKTHROUGH";
+    if (!open) throw new HttpError(409, "Predictions are not open right now");
+    const cur = parsePredictions(p.predictions);
+    for (const k of Object.keys(PREDICTION_QUESTIONS) as PredictionKey[]) {
+      const v = req.body?.[k];
+      if (v === undefined) continue;
+      if (!Number.isInteger(v) || v < 0 || v > PREDICTION_QUESTIONS[k].max) throw new HttpError(400, "Invalid prediction");
+      cur[k] = v;
+    }
+    db.prepare("UPDATE participants SET predictions = ? WHERE id = ?").run(JSON.stringify(cur), p.id);
+    hub.notify(s.id, "staff");
+    return participantView({ ...p, predictions: JSON.stringify(cur) }, s);
   }));
 
   app.post("/api/p/respond", wrap((req) => {
@@ -322,6 +366,7 @@ export function createApp(opts: AppOptions) {
       nickname: p.nickname,
       consent: p.consent === 1,
       excluded: p.excluded === 1,
+      predictions: { mine: parsePredictions(p.predictions), class: predictionSummary(s.id) },
       tasks: TASK_IDS.map((task) => {
         const sc = mine.scores[task];
         const cls = snap.classResults[task];
@@ -345,12 +390,13 @@ export function createApp(opts: AppOptions) {
   /* ----------------------------------------------------------- routes: host */
   app.get("/api/host/:sid", wrap((req) => {
     const s = hostAuth(req);
-    const { rows, counts, perTask } = aggregateCounts(s);
+    const { rows, counts, perTask, unfinishedNames } = aggregateCounts(s);
     const snap = atLeast(s.state, "TEST_LOCKED_AWAITING_DEBRIEF") ? getSnapshot(s.id) : null;
     const ranking = s.ranking && snap ? rankingFor(snap, JSON.parse(s.ranking)) : null;
+    const rankingPreview = s.ranking_preview && snap ? rankingFor(snap, JSON.parse(s.ranking_preview)) : null;
     return {
-      session: sessionMeta(s),
-      counts, perTask, participants: rows,
+      session: { ...sessionMeta(s), notice: s.notice, publicUrl: opts.publicUrl ?? null },
+      counts, perTask, participants: rows, unfinishedNames, rankingPreview, predictions: predictionSummary(s.id),
       results: snap ? { classResults: snap.classResults, counts: snap.counts, computedAt: snap.computedAt,
         participants: Object.values(snap.participants).map((p) => ({
           id: p.id, nickname: p.nickname, includedTasks: p.includedTasks, finished: p.finished, consent: p.consent, excluded: p.excluded,
@@ -399,9 +445,12 @@ export function createApp(opts: AppOptions) {
       revealed: typeof b.revealed === "boolean" ? b.revealed : cur.revealed,
       view: b.view === "summary" || b.view === "item" ? b.view : cur.view,
       featuredOnly: typeof b.featuredOnly === "boolean" ? b.featuredOnly : cur.featuredOnly,
+      showClass: typeof b.showClass === "boolean" ? b.showClass : !!cur.showClass,
     };
     if (next.task !== cur.task && !Number.isInteger(b.index)) next.index = 0;
-    if ((next.task !== cur.task || next.index !== cur.index) && typeof b.revealed !== "boolean") next.revealed = false; // new item starts hidden
+    // Any move (another item, task, list, or back from the answer key) starts hidden; only an explicit "Reveal" shows the answer.
+    const moved = next.task !== cur.task || next.index !== cur.index || next.view !== cur.view || next.featuredOnly !== cur.featuredOnly;
+    if (moved && typeof b.revealed !== "boolean") next.revealed = false;
     const len = (next.featuredOnly ? walkthroughItems(next.task).filter((i) => i.featured) : walkthroughItems(next.task)).length;
     next.index = Math.min(next.index, len - 1);
     bump(s.id, { walkthrough: JSON.stringify(next) });
@@ -426,17 +475,30 @@ export function createApp(opts: AppOptions) {
     if (s.state !== "RESULTS_RELEASED") throw new HttpError(409, "Rankings can only be disclosed after results are released");
     const cfg = req.body?.config as RankingConfig | null;
     if (cfg == null || cfg.mode === "none") {
-      bump(s.id, { ranking: null, projector_mode: s.projector_mode === "rankings" ? "results" : s.projector_mode });
+      bump(s.id, { ranking: null, ranking_preview: null, projector_mode: s.projector_mode === "rankings" ? "results" : s.projector_mode });
       hub.notify(s.id, "staff");
       return { ok: true, ranking: null };
     }
     if (!RANK_MODES.includes(cfg.mode) || !TASK_IDS.includes(cfg.task) || !METRICS[cfg.task].some((m) => m.key === cfg.metric)) throw new HttpError(400, "Invalid ranking configuration");
     const clean: RankingConfig = { mode: cfg.mode, task: cfg.task, metric: cfg.metric };
     for (const k of ["n", "rank", "from", "to"] as const) if (Number.isInteger(cfg[k]) && (cfg[k] as number) > 0) clean[k] = cfg[k];
-    bump(s.id, { ranking: JSON.stringify(clean), projector_mode: req.body?.show === false ? s.projector_mode : "rankings" });
-    audit(s.id, "ranking", clean);
+    // "Preview privately" only changes the dashboard copy; whatever the projector shows stays as it is.
+    if (req.body?.show === false) bump(s.id, { ranking_preview: JSON.stringify(clean) });
+    else bump(s.id, { ranking: JSON.stringify(clean), ranking_preview: null, projector_mode: "rankings" });
+    audit(s.id, req.body?.show === false ? "ranking-preview" : "ranking", clean);
     hub.notify(s.id, "staff");
     return { ok: true, ranking: clean };
+  }));
+
+  /** "Please finish up" notice on students' screens (testing only). An empty text clears it. */
+  app.post("/api/host/:sid/notice", wrap((req) => {
+    const s = hostAuth(req);
+    if (s.state !== "TESTING_OPEN") throw new HttpError(409, "Notices can only be sent while the test is open");
+    const text = typeof req.body?.text === "string" ? req.body.text.replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 140) : "";
+    bump(s.id, { notice: text || null });
+    audit(s.id, "notice", { text: text || null });
+    hub.notify(s.id, "all");
+    return { ok: true, notice: text || null };
   }));
 
   app.post("/api/host/:sid/participants/:pid/exclude", wrap((req) => {
@@ -464,7 +526,8 @@ export function createApp(opts: AppOptions) {
       const b = loadBattery();
       const rows = db.prepare("SELECT * FROM responses WHERE session_id = ? AND practice = 0 ORDER BY participant_id, created_at").all(s.id) as unknown as
         { participant_id: string; task: TaskId; item_id: string; payload: string; rt_ms: number | null }[];
-      const header = ["participant", ...(withNick ? ["nickname"] : []), "consent", "excluded", "finished", "task", "item_number", "item_id", "truth", "response", "confidence", "click_x", "click_y", "rt_ms"];
+      const header = ["participant", ...(withNick ? ["nickname"] : []), "consent", "research_consent", "excluded", "finished", "task", "item_number", "item_id", "truth", "response", "confidence",
+        "click_x", "click_y", "rt_ms", "prediction_faces", "prediction_charts", "session_code", "session_opened_at"];
       const esc = (v: unknown) => { const t = v == null ? "" : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
       const lines = [header.join(",")];
       for (const r of rows) {
@@ -473,8 +536,9 @@ export function createApp(opts: AppOptions) {
         const truth = k.task === "faces" ? (k.hasFace ? "face" : "noise") : k.task === "sequences" ? k.process : k.category;
         const resp = JSON.parse(r.payload) as TrialResponse & { face?: boolean; judgment?: string; x?: number; y?: number };
         const answer = r.task === "faces" ? (resp.face ? "face" : "no face") : resp.judgment;
-        lines.push([code.get(p.id), ...(withNick ? [p.nickname] : []), p.consent, p.excluded, p.finished_at ? 1 : 0, r.task, numbers.get(`${r.task}|${r.item_id}`), r.item_id, truth, answer, resp.confidence,
-          resp.x != null ? resp.x.toFixed(3) : "", resp.y != null ? resp.y.toFixed(3) : "", r.rt_ms].map(esc).join(","));
+        const pred = parsePredictions(p.predictions);
+        lines.push([code.get(p.id), ...(withNick ? [p.nickname] : []), p.consent, p.research_consent, p.excluded, p.finished_at ? 1 : 0, r.task, numbers.get(`${r.task}|${r.item_id}`), r.item_id, truth, answer, resp.confidence,
+          resp.x != null ? resp.x.toFixed(3) : "", resp.y != null ? resp.y.toFixed(3) : "", r.rt_ms, pred.faces ?? "", pred.charts ?? "", s.code, s.opened_at ?? ""].map(esc).join(","));
       }
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="apophenia-lab-${s.code}.csv"`);
@@ -488,7 +552,7 @@ export function createApp(opts: AppOptions) {
     tx(db, () => {
       db.prepare("DELETE FROM participants WHERE session_id = ?").run(s.id);
       db.prepare("DELETE FROM results WHERE session_id = ?").run(s.id);
-      bump(s.id, { state: "LOBBY", walkthrough: JSON.stringify(DEFAULT_WALKTHROUGH), ranking: null, projector_mode: "results", discussion_index: 0,
+      bump(s.id, { state: "LOBBY", walkthrough: JSON.stringify(DEFAULT_WALKTHROUGH), ranking: null, ranking_preview: null, notice: null, projector_mode: "results", discussion_index: 0,
         opened_at: null, locked_at: null, released_at: null, closed_at: null });
       audit(s.id, "reset");
     });
@@ -513,15 +577,15 @@ export function createApp(opts: AppOptions) {
     const s = screenAuth(req);
     const { counts, perTask } = aggregateCounts(s);
     const base = {
-      session: { title: s.title, code: s.code, state: s.state, projectorMode: s.projector_mode, discussionIndex: s.discussion_index },
-      counts: { joined: counts.joined, takingTest: counts.takingTest, finished: counts.finished, connected: counts.connected, incomplete: counts.incomplete },
+      session: { title: s.title, code: s.code, state: s.state, projectorMode: s.projector_mode, discussionIndex: s.discussion_index, publicUrl: opts.publicUrl ?? null },
+      counts: { joined: counts.joined, notStarted: counts.notStarted, takingTest: counts.takingTest, finished: counts.finished, connected: counts.connected, incomplete: counts.incomplete },
       perTask,
     };
     if (s.state === "ANSWER_WALKTHROUGH") return { ...base, walkthrough: walkthroughPayload(s, false) };
     if (resultsVisibleToParticipants(s.state)) {
       const snap = getSnapshot(s.id)!;
       const ranking = s.ranking && s.projector_mode === "rankings" ? rankingFor(snap, JSON.parse(s.ranking)) : null;
-      return { ...base, results: { classResults: snap.classResults, counts: snap.counts }, metrics: METRICS, ranking,
+      return { ...base, results: { classResults: snap.classResults, counts: snap.counts }, predictions: predictionSummary(s.id), metrics: METRICS, ranking,
         discussion: DISCUSSION_QUESTIONS, conclusion: CONCLUSION_POINTS };
     }
     return base;
@@ -580,6 +644,11 @@ export function createApp(opts: AppOptions) {
 }
 
 /* ------------------------------------------------------------------ validation */
+function parsePredictions(raw: string | null): Predictions {
+  if (!raw) return {};
+  try { const o = JSON.parse(raw); return o && typeof o === "object" ? o : {}; } catch { return {}; }
+}
+
 function validateResponse(task: TaskId, r: unknown): TrialResponse | null {
   if (!r || typeof r !== "object") return null;
   const o = r as Record<string, unknown>;

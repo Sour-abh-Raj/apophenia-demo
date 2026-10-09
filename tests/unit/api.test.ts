@@ -145,7 +145,9 @@ describe("full delayed-reveal protocol with three participants", () => {
     screen = await req("GET", `/api/screen/${s.sessionId}`, undefined, s.S);
     for (const f of SECRET_FIELDS) expect(screen.text).not.toContain(f);
     host = (await req("GET", `/api/host/${s.sessionId}`, undefined, s.H)).json;
-    expect(host.counts.incomplete).toBe(2); // Charlie + the excluded duplicate joiner (never started)
+    expect(host.counts.incomplete).toBe(1); // Charlie only: the excluded duplicate joiner is not a class member
+    expect(host.unfinishedNames).toEqual(["Charlie"]);
+    expect(host.counts.excluded).toBe(1);
     expect(host.results.classResults.faces.n).toBe(3); // Charlie completed faces
     expect(host.results.classResults.sequences.n).toBe(2);
     // Rankings and projector result modes are unavailable before release.
@@ -284,5 +286,123 @@ describe("polling-only mode", () => {
     const r = await fetch(`http://127.0.0.1:${(srv.address() as { port: number }).port}/api/events?role=participant&t=x`);
     expect(r.status).toBe(204);
     h.closeAll(); srv.close();
+  });
+});
+
+describe("v2 classroom upgrades", () => {
+  async function releasedSession() {
+    const s = await newSession();
+    const a = await join(s.code, "Alpha"), b = await join(s.code, "Bravo"), c = await join(s.code, "Charlie");
+    await act(s.sessionId, s.H, "open");
+    await answer(a.P, "yes"); await answer(b.P, "no"); await answer(c.P, "yes");
+    return { s, a, b, c };
+  }
+
+  it("'Preview privately' never changes what the projector shows", async () => {
+    const { s } = await releasedSession();
+    for (const x of ["lock", "beginWalkthrough", "releaseResults"]) await act(s.sessionId, s.H, x);
+    await req("POST", `/api/host/${s.sessionId}/ranking`, { config: { mode: "top1", task: "faces", metric: "falseAlarmRate" }, show: true }, s.H);
+    const before = (await req("GET", `/api/screen/${s.sessionId}`, undefined, s.S)).json.ranking;
+    expect(before.rows.map((r: { nickname: string }) => r.nickname)).toEqual(["Bravo"]);
+    await req("POST", `/api/host/${s.sessionId}/ranking`, { config: { mode: "all", task: "faces", metric: "accuracy" }, show: false }, s.H);
+    expect((await req("GET", `/api/screen/${s.sessionId}`, undefined, s.S)).json.ranking).toEqual(before);
+    const host = (await req("GET", `/api/host/${s.sessionId}`, undefined, s.H)).json;
+    expect(host.rankingPreview.rows).toHaveLength(3); // the private preview is on the dashboard only
+    expect(host.ranking).toEqual(before);
+    // Hiding clears both.
+    await req("POST", `/api/host/${s.sessionId}/ranking`, { config: null }, s.H);
+    const h2 = (await req("GET", `/api/host/${s.sessionId}`, undefined, s.H)).json;
+    expect([h2.ranking, h2.rankingPreview]).toEqual([null, null]);
+  });
+
+  it("finish-up notice reaches students only while testing", async () => {
+    const s = await newSession();
+    const a = await join(s.code, "A");
+    expect((await req("POST", `/api/host/${s.sessionId}/notice`, { text: "2 minutes left" }, s.H)).status).toBe(409); // lobby
+    await act(s.sessionId, s.H, "open");
+    expect((await req("POST", `/api/host/${s.sessionId}/notice`, { text: "2 minutes left" }, { "x-host-key": a.token })).status).toBe(403);
+    await req("POST", `/api/host/${s.sessionId}/notice`, { text: "2 minutes left" }, s.H);
+    expect((await req("GET", "/api/p/me", undefined, a.P)).json.notice).toBe("2 minutes left");
+    await act(s.sessionId, s.H, "lock");
+    expect((await req("GET", "/api/p/me", undefined, a.P)).json.notice).toBeNull();
+  });
+
+  it("predictions: only once finished, validated, summarised after release, exported", async () => {
+    const s = await newSession();
+    const a = await join(s.code, "A"), b = await join(s.code, "B", false);
+    await act(s.sessionId, s.H, "open");
+    expect((await req("POST", "/api/p/predict", { faces: 8 }, a.P)).status).toBe(409); // still working
+    await answer(a.P, "yes"); await answer(b.P, "no");
+    expect((await req("POST", "/api/p/predict", { faces: 21 }, a.P)).status).toBe(400);
+    expect((await req("POST", "/api/p/predict", { faces: 8, charts: 6 }, a.P)).json.me.predictions).toEqual({ faces: 8, charts: 6 });
+    await req("POST", "/api/p/predict", { faces: 2, charts: 2 }, b.P); // opted out: not in the class summary
+    for (const x of ["lock", "beginWalkthrough"]) await act(s.sessionId, s.H, x);
+    expect((await req("POST", "/api/p/predict", { faces: 9 }, a.P)).status).toBe(200); // still open while waiting
+    await act(s.sessionId, s.H, "releaseResults");
+    expect((await req("POST", "/api/p/predict", { faces: 5 }, a.P)).status).toBe(409); // closed once answers are out
+    const rep = (await req("GET", "/api/p/report", undefined, a.P)).json;
+    expect(rep.predictions.mine).toEqual({ faces: 9, charts: 6 });
+    expect(rep.predictions.class.faces).toMatchObject({ n: 1, median: 9, truth: 5 });
+    expect((await req("GET", `/api/screen/${s.sessionId}`, undefined, s.S)).json.predictions.charts).toMatchObject({ n: 1, truth: 4 });
+    const csv = (await req("GET", `/api/host/${s.sessionId}/export.csv?k=${s.hostKey}`)).text.split("\n");
+    expect(csv[0]).toContain("research_consent");
+    expect(csv[0]).toContain("prediction_faces");
+  });
+
+  it("research consent is opt-in and separate from class statistics", async () => {
+    const s = await newSession();
+    const yes = (await req("POST", "/api/join", { code: s.code, nickname: "R", researchConsent: true })).json;
+    const no = (await req("POST", "/api/join", { code: s.code, nickname: "N" })).json;
+    expect((await req("GET", "/api/p/me", undefined, { "x-participant-token": yes.token })).json.me.researchConsent).toBe(true);
+    expect((await req("GET", "/api/p/me", undefined, { "x-participant-token": no.token })).json.me.researchConsent).toBe(false);
+  });
+
+  it("'show class answers' adds only an aggregate line, and only to revealed items", async () => {
+    const { s, a } = await releasedSession();
+    for (const x of ["lock", "beginWalkthrough"]) await act(s.sessionId, s.H, x);
+    await req("POST", `/api/host/${s.sessionId}/walkthrough`, { showClass: true }, s.H);
+    let w = (await req("GET", `/api/screen/${s.sessionId}`, undefined, s.S)).json.walkthrough;
+    expect(w.classAnswer).toBeNull(); // hidden item: nothing
+    await req("POST", `/api/host/${s.sessionId}/walkthrough`, { revealed: true }, s.H);
+    const scr = await req("GET", `/api/screen/${s.sessionId}`, undefined, s.S);
+    w = scr.json.walkthrough;
+    expect(w.classAnswer).toMatchObject({ n: 3, saidSignal: 2 }); // Alpha + Charlie said "face"
+    for (const n of ["Alpha", "Bravo", "Charlie"]) expect(scr.text).not.toContain(n);
+    expect((await req("GET", "/api/p/me", undefined, a.P)).text).not.toContain("classAnswer");
+  });
+
+  it("every move starts hidden: next item, task, list toggle and back from the answer key", async () => {
+    const s = await newSession();
+    for (const x of ["open", "lock", "beginWalkthrough"]) await act(s.sessionId, s.H, x);
+    const W = (b: object) => req("POST", `/api/host/${s.sessionId}/walkthrough`, b, s.H);
+    const revealed = async () => (await req("GET", `/api/screen/${s.sessionId}`, undefined, s.S)).json.walkthrough.reveal !== null;
+    for (const move of [{ index: 1 }, { task: "sequences" }, { featuredOnly: false }, { view: "summary" }, { view: "item" }, { index: 2 }, { index: 1 }]) {
+      await W({ revealed: true });
+      expect(await revealed()).toBe(true);
+      await W(move);
+      expect((await req("GET", `/api/host/${s.sessionId}`, undefined, s.H)).json.session.walkthrough.revealed, JSON.stringify(move)).toBe(false);
+    }
+  });
+
+  it("a notice also reaches students who have already finished", async () => {
+    const s = await newSession();
+    const a = await join(s.code, "A");
+    await act(s.sessionId, s.H, "open");
+    await answer(a.P, "yes");
+    await req("POST", `/api/host/${s.sessionId}/notice`, { text: "Two minutes left" }, s.H);
+    const me = (await req("GET", "/api/p/me", undefined, a.P)).json;
+    expect([me.phase, me.notice]).toEqual(["finished-waiting", "Two minutes left"]);
+  });
+
+  it("excluded entries are not counted as class members anywhere", async () => {
+    const s = await newSession();
+    await join(s.code, "A");
+    const t = await join(s.code, "Test phone");
+    await req("POST", `/api/host/${s.sessionId}/participants/${t.participantId}/exclude`, { excluded: true }, s.H);
+    await act(s.sessionId, s.H, "open");
+    const host = (await req("GET", `/api/host/${s.sessionId}`, undefined, s.H)).json;
+    expect(host.counts).toMatchObject({ joined: 1, notStarted: 1, takingTest: 0, notFinishedYet: 1, excluded: 1 });
+    expect(host.participants).toHaveLength(2); // still listed so it can be re-included
+    expect((await req("GET", `/api/screen/${s.sessionId}`, undefined, s.S)).json.counts.joined).toBe(1);
   });
 });

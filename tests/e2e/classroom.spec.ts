@@ -1,11 +1,22 @@
 /**
  * End-to-end rehearsal of a full class with real browsers: one instructor, one projector
  * window and three independent participants (separate browser contexts = separate devices).
- * Screenshots are written to docs/screenshots for the README.
+ * Screenshots go to test-results/screenshots; set UPDATE_SCREENSHOTS=1 to refresh docs/screenshots for the README.
  */
+import { mkdirSync } from "node:fs";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
-const SHOTS = "docs/screenshots";
+const SHOTS = process.env.UPDATE_SCREENSHOTS ? "docs/screenshots" : "test-results/screenshots";
+mkdirSync(SHOTS, { recursive: true });
+/** Words that would give the lesson away before the debrief (kept in step with tests/unit/concealment.test.ts). */
+const GIVEAWAY = /\b(apophen\w*|pareidol\w*|noise|noisy|random\w*|illusion|illusory|phenomen\w*|cherry[- ]?pick\w*|patterns?|bias\w*|by chance|streak\w*|trick)\b/i;
+const giveaways: string[] = [];
+/** Records any give-away word in what a student or the projector can currently read. */
+async function scanText(page: Page, where: string) {
+  const t = await page.locator("body").innerText();
+  const m = t.match(GIVEAWAY);
+  if (m) giveaways.push(`${where}: "${m[0]}" in …${t.slice(Math.max(0, (m.index ?? 0) - 40), (m.index ?? 0) + 40).replace(/\n/g, " ")}…`);
+}
 const SECRET = ['"hasFace"', '"truth"', '"category"', '"process"', '"sampleR"', '"replication"', '"hitRate"', '"classResults"'];
 
 async function participant(browser: Browser, code: string, nickname: string) {
@@ -19,9 +30,12 @@ async function participant(browser: Browser, code: string, nickname: string) {
     for (const s of SECRET) if (body.includes(s)) leaks.push(`${r.url()} contains ${s}`);
   });
   await page.goto(`/j/${code}`);
+  await page.getByTestId("nickname").waitFor();
+  await scanText(page, "join form");
   await page.getByTestId("nickname").fill(nickname);
   await page.getByTestId("join-btn").click();
   await expect(page.getByTestId("lobby")).toBeVisible();
+  await scanText(page, "lobby");
   return { page, leaks, stopWatching: () => { watching = false; } };
 }
 
@@ -29,9 +43,10 @@ async function participant(browser: Browser, code: string, nickname: string) {
 async function play(page: Page, yes: boolean, opts: { stopAtTask?: string; shots?: boolean } = {}) {
   const shot = new Set<string>();
   for (let i = 0; i < 200; i++) {
-    if (await page.getByTestId("finished-waiting").isVisible()) return;
+    if (await page.getByTestId("finished-waiting").isVisible()) { await scanText(page, "finished-waiting"); return; }
     const intro = page.getByTestId("task-intro");
     if (await intro.isVisible()) {
+      await scanText(page, "task intro");
       if (opts.stopAtTask && (await intro.textContent())?.includes(opts.stopAtTask)) return;
       if (opts.shots && !shot.has("intro")) { shot.add("intro"); await page.screenshot({ path: `${SHOTS}/p-intro.png` }); }
       await page.getByTestId("start-practice").click();
@@ -41,6 +56,7 @@ async function play(page: Page, yes: boolean, opts: { stopAtTask?: string; shots
     const meta = page.locator(".trial-meta");
     if (!(await meta.isVisible())) { await page.waitForTimeout(100); continue; }
     const before = await meta.innerText();
+    await scanText(page, `trial ${before.replace(/\n/g, " ")}`);
     if (await page.getByTestId("face-image").isVisible()) {
       if (yes) await page.getByTestId("face-image").click({ position: { x: 120, y: 130 } });
       else await page.getByTestId("no-face").click();
@@ -104,6 +120,7 @@ test("full classroom flow with delayed, instructor-controlled reveal", async ({ 
 
   await expect(host.getByTestId("tile-finished")).toContainText("2");
   await expect(proj.locator(".pj-counter.accent b")).toHaveText("2");
+  await scanText(proj, "projector during testing");
   await host.screenshot({ path: `${SHOTS}/host-testing.png`, fullPage: true });
   await proj.screenshot({ path: `${SHOTS}/projector-live.png` });
   await host.waitForTimeout(1500);
@@ -117,8 +134,11 @@ test("full classroom flow with delayed, instructor-controlled reveal", async ({ 
   await expect.poll(state).toBe("TEST_LOCKED_AWAITING_DEBRIEF");
   for (const p of [A, B, C]) await expect(p.page.getByTestId("locked-waiting")).toBeVisible();
   await expect(C.page.getByTestId("locked-waiting")).toContainText("parts you completed are saved");
+  for (const p of [A, B, C]) await scanText(p.page, "locked waiting screen");
   await C.page.screenshot({ path: `${SHOTS}/p-locked-waiting.png` });
   await expect(proj.getByText("Responses locked").first()).toBeVisible();
+  await scanText(proj, "projector after lock");
+  expect(giveaways, giveaways.join("\n")).toEqual([]); // nothing before the debrief named or hinted at the concept
   await proj.screenshot({ path: `${SHOTS}/projector-locked.png` });
 
   /* ---------------- walkthrough ---------------- */

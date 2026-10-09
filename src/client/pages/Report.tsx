@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { MetricDef, TaskScore } from "../../shared/scoring";
 import type { TaskId } from "../../shared/types";
-import { CONFIDENCE_LABELS, TASK_TITLES } from "../../shared/types";
+import { CONFIDENCE_LABELS, PREDICTION_QUESTIONS, TASK_TITLES_DEBRIEF as TASK_TITLES, type PredictionKey, type Predictions } from "../../shared/types";
 import { api } from "../api";
 import { CompareRow, num } from "../components/Bars";
 
@@ -17,7 +17,27 @@ interface ReportTask {
   classRuleRateByProcess: Record<string, number | null> | null;
   metrics: MetricDef[];
 }
-interface ReportData { nickname: string; consent: boolean; excluded: boolean; tasks: ReportTask[] }
+interface PredSummary { n: number; mean: number | null; median: number | null; truth: number; max: number }
+interface ReportData {
+  nickname: string; consent: boolean; excluded: boolean; tasks: ReportTask[];
+  predictions?: { mine: Predictions; class: Record<PredictionKey, PredSummary> };
+}
+
+const pctR = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 100)}%`);
+
+/** Three plain-language sentences before any chart: what happened to *you*, in counts, next to the class. */
+function takeaways(d: ReportData): string[] {
+  const out: string[] = [];
+  const t = (id: TaskId) => d.tasks.find((x) => x.task === id);
+  const f = t("faces");
+  if (f?.score.complete) out.push(`You marked a face in ${f.score.falseAlarms} of the ${f.score.nNoise} images that had no face at all (class average ${pctR(f.classMeans.falseAlarmRate)}), and found ${f.score.hits} of the ${f.score.nSignal} real ones.`);
+  const q = t("sequences");
+  const fair = q?.score.ruleRateByProcess?.fair;
+  if (q?.score.complete && fair != null) out.push(`You saw a “hidden rule” in ${Math.round(fair * 6)} of the 6 sequences that came from a perfectly fair coin (class average ${pctR(q.classRuleRateByProcess?.fair)}).`);
+  const c = t("charts");
+  if (c?.score.complete && c.score.faRateSelected != null) out.push(`You called ${Math.round(c.score.faRateSelected * 4)} of the 4 cherry-picked, unrelated charts “real” (class average ${pctR(c.classMeans.faRateSelected)}). None of them held up in fresh data.`);
+  return out;
+}
 
 const GROUP_LABEL: Record<string, string> = {
   face: "face", noise: "noise", fair: "fair coin", switchy: "rule: switches", streaky: "rule: repeats",
@@ -47,6 +67,25 @@ export function Report({ token }: { token: string }) {
         <p className="muted">Each activity is scored separately — there is no overall score. Class averages use only participants who completed that activity and agreed to be included.</p>
         {(!data.consent || data.excluded) && <p className="note">Your responses are not included in the class averages{!data.consent ? " (you opted out)" : ""}.</p>}
       </div>
+      {takeaways(data).length > 0 && (
+        <div className="card takeaway" data-testid="takeaway">
+          <h2>In short</h2>
+          <ul>{takeaways(data).map((x) => <li key={x}>{x}</li>)}</ul>
+        </div>
+      )}
+      {data.predictions && Object.keys(data.predictions.mine).length > 0 && (
+        <div className="card" data-testid="report-predictions">
+          <h2>Your guesses vs. the truth</h2>
+          {(Object.keys(PREDICTION_QUESTIONS) as PredictionKey[]).filter((k) => data.predictions!.mine[k] != null).map((k) => {
+            const cls = data.predictions!.class[k];
+            return (
+              <p key={k}>{PREDICTION_QUESTIONS[k].label}<br />
+                You guessed <b>{data.predictions!.mine[k]}</b> · the answer was <b>{cls.truth}</b>
+                {cls.n > 0 && <span className="muted"> · class median guess {cls.median} (n = {cls.n})</span>}</p>
+            );
+          })}
+        </div>
+      )}
       {data.tasks.map((t) => <TaskReport key={t.task} t={t} />)}
       <div className="card muted small">
         These are short classroom demonstrations, adapted from research paradigms. They are not validated psychological tests and say nothing about personality, intelligence or mental health.
@@ -86,8 +125,12 @@ function TaskReport({ t }: { t: ReportTask }) {
         <CompareRow label="False-alarm rate" note="lower = fewer false alarms" you={s.falseAlarmRate} cls={cm.falseAlarmRate} />
         {t.task === "faces" && s.localizationRate != null && <CompareRow label="Clicked on the actual face (of your hits)" you={s.localizationRate} cls={cm.localizationRate} />}
         {t.task === "charts" && <CompareRow label="Said ‘real’ to cherry-picked unrelated charts" you={s.faRateSelected ?? null} cls={cm.faRateSelected} />}
-        <CompareRow label="Sensitivity d′" note="0 = chance" you={s.dPrime} cls={cm.dPrime} format="num" max={3} />
       </div>
+      <details className="subsection">
+        <summary>Details for the statistically curious</summary>
+        <CompareRow label="Sensitivity d′" note="0 = chance" you={s.dPrime} cls={cm.dPrime} format="num" max={3} />
+        <p className="small muted">{t.metrics.find((m) => m.key === "dPrime")?.explain}</p>
+      </details>
       {t.task === "sequences" && s.ruleRateByProcess && t.classRuleRateByProcess && (
         <div className="subsection">
           <h3>How often you said “hidden rule”</h3>
@@ -113,7 +156,7 @@ function TaskReport({ t }: { t: ReportTask }) {
           ))}
         </div>
       </details>
-      <p className="interpret small">{INTERPRET[t.task]} {t.metrics.find((m) => m.key === "dPrime")?.explain} Rates use the same denominators for everyone ({s.nSignal} signal and {s.nNoise} non-signal items), so they are directly comparable.</p>
+      <p className="interpret small">{INTERPRET[t.task]} Rates use the same denominators for everyone ({s.nSignal} signal and {s.nNoise} non-signal items), so they are directly comparable.</p>
     </div>
   );
 }

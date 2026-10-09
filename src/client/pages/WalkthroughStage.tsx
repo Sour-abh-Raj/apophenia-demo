@@ -9,12 +9,16 @@ export interface RevealContent {
   replication?: { n: number; points: [number, number][]; r: number };
 }
 export interface WalkItem { number: number; itemId: string; stimulus: Stimulus; featured: boolean }
+/** Aggregate only: how many of the included class gave the "signal" answer on this item. */
+export interface ClassAnswer { n: number; saidSignal: number; pctSaidSignal: number }
+
+const SAID: Record<TaskId, string> = { faces: "said “face”", sequences: "said “hidden rule”", charts: "said “real relationship”" };
 
 const NOUN: Record<TaskId, string> = { faces: "Image", sequences: "Sequence", charts: "Chart" };
 const withKey = (url: string, k: string) => `${url}?k=${encodeURIComponent(k)}`;
 
-export function ItemStage({ task, item, reveal, assetKey, compact, theme = "light" }: {
-  task: TaskId; item: WalkItem; reveal: RevealContent | null; assetKey: string; compact?: boolean; theme?: "light" | "dark";
+export function ItemStage({ task, item, reveal, classAnswer, assetKey, compact, theme = "light" }: {
+  task: TaskId; item: WalkItem; reveal: RevealContent | null; classAnswer?: ClassAnswer | null; assetKey: string; compact?: boolean; theme?: "light" | "dark";
 }) {
   const st = item.stimulus;
   return (
@@ -50,6 +54,11 @@ export function ItemStage({ task, item, reveal, assetKey, compact, theme = "ligh
           <div className="reveal" data-testid="reveal">
             <span className={`truth-badge ${reveal.signal ? "sig" : "nosig"}`}>{reveal.truthLabel}</span>
             <h2>{reveal.headline}</h2>
+            {classAnswer && (
+              <div className="class-answer" data-testid="class-answer">
+                <b>{classAnswer.saidSignal} of {classAnswer.n}</b> of you {SAID[task]} ({Math.round(classAnswer.pctSaidSignal * 100)}%)
+              </div>
+            )}
             <ul>{reveal.explanation.map((e) => <li key={e}>{e}</li>)}</ul>
             {!compact && reveal.facts.length > 0 && (
               <dl className="facts">{reveal.facts.map((f) => <div key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}</dl>

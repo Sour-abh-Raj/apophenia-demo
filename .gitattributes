@@ -1,0 +1,2 @@
+stimuli/*.json -text
+stimuli/**/*.json -text

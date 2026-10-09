@@ -12,11 +12,30 @@ export type SessionState = (typeof SESSION_STATES)[number];
 
 export type TaskId = "faces" | "sequences" | "charts";
 export const TASK_IDS: TaskId[] = ["faces", "sequences", "charts"];
+/**
+ * Neutral titles: everything students (and the projector) see BEFORE the debrief uses these.
+ * They must not name or hint at the concept being taught (no "noise", "random", "pattern"…),
+ * so the walkthrough can deliver the aha moment. tests/unit/concealment.test.ts enforces this.
+ */
 export const TASK_TITLES: Record<TaskId, string> = {
+  faces: "Hidden Faces",
+  sequences: "Coin Sequences",
+  charts: "Branch Data",
+};
+/** Titles used from the answer walkthrough onwards, once the concept has been introduced. */
+export const TASK_TITLES_DEBRIEF: Record<TaskId, string> = {
   faces: "Faces in the Noise",
   sequences: "Coin Sequences",
   charts: "Branch Data",
 };
+
+/** Prediction questions asked while a student waits (answers are compared with the truth after release). */
+export const PREDICTION_QUESTIONS = {
+  faces: { label: "Out of the 20 face images, how many do you think really contained a face?", max: 20, truth: 5 },
+  charts: { label: "Out of the 12 branch charts, how many do you think showed a real relationship?", max: 12, truth: 4 },
+} as const;
+export type PredictionKey = keyof typeof PREDICTION_QUESTIONS;
+export type Predictions = Partial<Record<PredictionKey, number>>;
 
 export type Confidence = 1 | 2 | 3;
 export const CONFIDENCE_LABELS: Record<Confidence, string> = { 1: "Guessing", 2: "Fairly sure", 3: "Very sure" };
@@ -54,7 +73,9 @@ export type ParticipantPhase =
 
 export interface ParticipantView {
   session: { title: string; code: string; state: SessionState };
-  me: { id: string; nickname: string; consent: boolean; finished: boolean; answered: number; total: number };
+  me: { id: string; nickname: string; consent: boolean; researchConsent: boolean; finished: boolean; answered: number; total: number; predictions: Predictions };
+  /** Instructor's "please finish up" notice, shown while testing. */
+  notice: string | null;
   phase: ParticipantPhase;
   current: TrialView | null;
   /** Prefetch hint for the following trial's stimulus (still no answer). */
@@ -84,4 +105,6 @@ export interface WalkthroughPointer {
   revealed: boolean;
   view: "item" | "summary";
   featuredOnly: boolean;
+  /** When true, a revealed item also shows how the class answered it (aggregate only). */
+  showClass?: boolean;
 }

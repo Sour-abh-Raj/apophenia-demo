@@ -341,3 +341,57 @@ details.subsection summary { cursor: pointer; font-weight: 700; margin-bottom: 8
 .pj-discussion h1 { font-size: clamp(2rem, 4.5vw, 3.4rem); line-height: 1.25; }
 .pj-conclusion ul { text-align: left; font-size: 1.35rem; line-height: 1.6; max-width: 900px; margin: 20px auto; }
 @media (max-width: 900px) { .pj-monitor, .pj-split { grid-template-columns: 1fr; } .pj-task { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------------------------- v2: notices, predictions, takeaways */
+.banner.notice { background: #e0e7ff; color: #312e81; font-size: 1.05rem; }
+.predict { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgb(127 127 127 / 20%); text-align: left; display: grid; gap: 10px; }
+.predict h3 { margin: 0; font-size: 1rem; }
+.predict-row { display: grid; grid-template-columns: 1fr 84px; gap: 10px; align-items: center; font-size: 0.95rem; }
+.predict-row input { font: inherit; font-size: 1.1rem; padding: 8px; border-radius: 8px; border: 1px solid #cbd5e1; text-align: center; }
+.takeaway ul { margin: 0; padding-left: 1.2em; line-height: 1.55; }
+.takeaway li + li { margin-top: 6px; }
+.class-answer { display: inline-block; margin: 4px 0 10px; padding: 8px 14px; border-radius: 10px; background: rgb(99 102 241 / 18%); font-size: 1.15rem; }
+.kbd-hint { margin: 6px 0 10px; }
+kbd { font: inherit; font-size: 0.8em; padding: 1px 6px; border: 1px solid #cbd5e1; border-bottom-width: 2px; border-radius: 4px; background: #f8fafc; }
+.notice-ctl .grow { flex: 1; min-width: 220px; }
+
+/* ---------------------------------------------------------------- v2: projector join + key contrasts */
+.pj-join-main { display: flex; align-items: center; justify-content: center; gap: 24px; }
+.pj-qr { width: 168px; height: 168px; flex: none; background: #fff; border-radius: 12px; padding: 8px; }
+.pj-qr svg { width: 100%; height: 100%; display: block; }
+.pj-key { grid-column: 1 / -1; }
+.pj-key-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.pj-key-big { font-size: 2.2rem; font-weight: 900; color: #fdba74; }
+.pj-key-big span { font-size: 1rem; color: var(--p-muted); font-weight: 600; }
+.pj-pred { margin: 6px 0; }
+.pj-items { display: grid; grid-template-columns: 1fr 1fr; column-gap: 22px; }
+
+/* ---------------------------------------------------------------- v2: fit a 1280x720 screen share */
+.projector .hbar { margin: 5px 0; }
+/* Answer key: as many columns as fit the window (never a fixed count), so cards never spill into each other. */
+.projector .summary-grid { gap: 8px; }
+.projector .summary-grid.g-faces { grid-template-columns: repeat(auto-fill, minmax(clamp(92px, 8.6vw, 170px), 1fr)); }
+.projector .summary-grid.g-charts { grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 13vw, 300px), 1fr)); }
+.projector .summary-grid.g-sequences { grid-template-columns: repeat(auto-fill, minmax(clamp(220px, 22vw, 420px), 1fr)); }
+.projector .summary-cell { padding: 6px; }
+.summary-cell { min-width: 0; overflow: hidden; }
+.summary-cell > svg, .summary-cell .face-img { max-width: 100%; }
+.summary-top { flex-direction: column; align-items: flex-start; gap: 3px; }
+.summary-top .truth-badge { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.projector .summary-top { font-size: 0.72rem; }
+.pj-heat { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-height: 820px) {
+  .pj-main { padding-top: 16px; padding-bottom: 12px; }
+  .pj-header { padding: 10px 28px; }
+  .pj-card { padding: 16px 18px; }
+  .pj-tabs { margin-bottom: 12px; }
+  .pj-grid3, .pj-split { gap: 12px; }
+  .summary-notes { margin: 0 0 8px; font-size: 0.95rem; }
+  .pj-key-big { font-size: 1.8rem; }
+}
+.proj-state { margin-bottom: 8px; padding: 6px 10px; border-radius: 8px; background: #f1f5f9; font-size: 0.85rem; }
+.proj-state.on { background: #ede9fe; color: #4c1d95; }
+.banner.notice { position: sticky; top: 0; z-index: 20; padding: 12px 16px; box-shadow: 0 2px 10px rgb(49 46 129 / 25%); animation: notice-in 0.6s ease-out 2; }
+.notice-label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.75; }
+.notice-done { font-weight: 500; opacity: 0.85; }
+@keyframes notice-in { 0% { background: #a5b4fc; } 100% { background: #e0e7ff; } }

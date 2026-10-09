@@ -4,7 +4,7 @@ import { api, hostKey, hostSessions, screenKeyStore, store } from "../api";
 
 export function HostCreatePage() {
   const nav = useNavigate();
-  const [title, setTitle] = useState("Apophenia Perception Lab — MTM");
+  const [title, setTitle] = useState("Perception & Judgment Lab — MTM");
   const [passcode, setPasscode] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -30,6 +30,9 @@ export function HostCreatePage() {
         <label className="field">Session title (shown to students)
           <input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} data-testid="session-title" />
         </label>
+        {/(apophen|pareidol|noise|random|illus|pattern|bias)/i.test(title) && (
+          <p className="alert small" data-testid="title-warning">Students see this title before the reveal. It names or hints at the concept — consider a neutral title such as “Perception &amp; Judgment Lab”.</p>
+        )}
         <label className="field">Instructor passcode (set by INSTRUCTOR_PASSCODE on the server)
           <input type="password" value={passcode} onChange={(e) => setPasscode(e.target.value)} data-testid="passcode" onKeyDown={(e) => e.key === "Enter" && create()} />
         </label>

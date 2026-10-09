@@ -118,7 +118,7 @@ Serverless platforms (e.g. Vercel, Netlify functions) are **not** suitable, beca
 | 5 | Watch *Joined / Taking test / Finished / Not finished yet / Disconnected*. Ask *"Has everyone finished?"* | Dashboard |
 | 6 | Click **CLOSE TEST & LOCK RESPONSES** → confirm. The dialog lists anyone who has not finished. Their completed activities are kept; unfinished activities are excluded from class averages. | Dashboard |
 | 7 | Introduce apophenia with your slides. Students stay on the waiting screen. (Mis-locked? **Re-open test** works until the walkthrough starts.) | Your slides |
-| 8 | Click **BEGIN ANSWER WALKTHROUGH**. Pick a task tab, use **Next / Previous**, and click **Reveal answer** when ready. Your dashboard previews each answer privately before you reveal it. Untick *Featured items only* to browse every item; **Show full answer key** shows the whole task at once. | Dashboard → projector |
+| 8 | Click **BEGIN ANSWER WALKTHROUGH**. Pick a task tab, use **Next / Previous**, and click **Reveal answer** when ready. Every item starts hidden, and moving to any other item (or back from the answer key) hides it again. Your dashboard mirrors the projector and shows the answer privately in a separate "Only you can see this" box. Untick *Featured items only* to browse every item; **Reveal all answers (answer key)** shows the whole task at once. | Dashboard → projector |
 | 9 | Click **SHOW CLASS & INDIVIDUAL RESULTS** → confirm. Students see their reports; the projector shows class results. Click the projector's tabs (Overview, Faces, Coins, Branch Data, Confidence) **in the projector window**. | Dashboard + projector window |
 | 10 | Optional rankings: choose task, metric (its direction is shown) and mode → **Preview privately** or **Show on projector**; **Hide rankings** removes them. | Dashboard |
 | 11 | **Discussion questions** (◀ ▶ to move), then **Conclusion**, then **Close & archive session**. | Dashboard |
@@ -131,6 +131,16 @@ Which URL goes where:
 - **Students:** `https://<your-url>/j/<CODE>`, or the home page plus the 6-letter code.
 
 ---
+
+### New in this version
+
+- **Concealment:** before the walkthrough, nothing a student or the projector shows names or hints at the concept. Task 1 is called *Hidden Faces* until the debrief. The default session title is neutral, and the create form warns if your title gives the concept away. `tests/unit/concealment.test.ts` and the e2e test enforce this.
+- **Message to students** (while testing): send a "2 minutes left" banner to every student's screen.
+- **Guesses while waiting:** finished students guess how many images had a face and how many charts were real. Projector and reports compare the guesses with the truth after release.
+- **Walkthrough:** keyboard shortcuts (→/← move, Space reveal, K answer key, 1–3 task) and an optional *Show how the class answered* line on each revealed item (aggregate only).
+- **Results:** the Overview leads with the key contrasts (cherry-picked vs ordinary charts, repeating vs switching coins). Student reports open with a plain-language summary; d′ is under *Details*.
+- **Rankings:** *Preview privately* now never changes the projector.
+- **Data:** excluded devices are left out of all counts. Optional research consent and the guesses are included in the CSV.
 
 ## 5. Rehearsal checklist
 
@@ -170,6 +180,7 @@ Do a full rehearsal a day before class, with your phone and one or two other dev
 | `INSTRUCTOR_PASSCODE` | *(random, printed at start-up)* | Required to create sessions. Set it in `.env` or your host's dashboard. **Never commit it.** |
 | `PORT` | `3000` | HTTP port |
 | `DATABASE_PATH` | `data/lab.sqlite` | SQLite file (must be on persistent storage when deployed) |
+| `PUBLIC_URL` | *(the address the dashboard is open on)* | Address students use, e.g. `http://192.168.1.20:3000` or your tunnel URL. Shown on the projector (with a QR code) and in the join link. |
 | `DISABLE_SSE` | *(off)* | `1` = polling-only live updates (for connection-limited tunnels) |
 | `STIMULI_DIR` | `stimuli` | Location of stimulus files and answer keys |
 | `CLIENT_DIR` | `dist/client` | Built web client |

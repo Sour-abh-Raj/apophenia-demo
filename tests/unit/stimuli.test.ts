@@ -113,7 +113,10 @@ describe("business charts", () => {
   });
   it("regenerates byte-identically from the fixed seed", () => {
     const out = join(mkdtempSync(join(tmpdir(), "battery-")), "battery.json");
-    execFileSync(join(ROOT, "node_modules/.bin/tsx"), [join(ROOT, "scripts/generate-battery.ts")], { env: { ...process.env, BATTERY_OUT: out } });
-    expect(readFileSync(out, "utf8")).toBe(readFileSync(join(STIM, "battery.json"), "utf8"));
+    // Run tsx's CLI through the current Node binary: node_modules/.bin/tsx is a shell script that Windows cannot exec directly.
+    execFileSync(process.execPath, [join(ROOT, "node_modules/tsx/dist/cli.mjs"), join(ROOT, "scripts/generate-battery.ts")], { env: { ...process.env, BATTERY_OUT: out } });
+    // Compare content, not line endings (git may check the file out with CRLF on Windows).
+    const lf = (p: string) => readFileSync(p, "utf8").replace(/\r\n/g, "\n");
+    expect(lf(out)).toBe(lf(join(STIM, "battery.json")));
   });
 });

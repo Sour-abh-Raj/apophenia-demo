@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
-import type { ParticipantView, TaskId, TrialResponse } from "../../shared/types";
-import { TASK_IDS, TASK_TITLES } from "../../shared/types";
+import type { ParticipantView, PredictionKey, TaskId, TrialResponse } from "../../shared/types";
+import { PREDICTION_QUESTIONS, TASK_IDS, TASK_TITLES } from "../../shared/types";
 import { api, ApiError, participantKey, store } from "../api";
 import { Trial, usePrefetch } from "../components/Trials";
 import { useLive } from "../live";
@@ -9,13 +9,13 @@ import { Report } from "./Report";
 
 const TASK_INTROS: Record<TaskId, { lead: string; steps: string[]; scoredCount: number; noun: string }> = {
   faces: {
-    lead: "You'll see images made of visual noise. Some contain a faint face hidden in the noise; others contain only noise.",
+    lead: "You'll see grainy, cloud-like grey images. Some have a faint face hidden in them; others don't.",
     steps: ["If you see a face, tap where it is. If not, press “No face”.", "Then say how sure you are.", "Go with your perception — about 5 seconds per image."],
     scoredCount: 20, noun: "images",
   },
   sequences: {
     lead: "Each card shows 20 coin flips. Some sequences come from an ordinary fair coin. Others come from a coin with a hidden rule — a mechanism that makes it tend to repeat, or tend to switch.",
-    steps: ["Decide: fair, random coin — or hidden rule?", "Then say how sure you are."],
+    steps: ["Decide: fair coin — or a coin with a hidden rule?", "Then say how sure you are."],
     scoredCount: 12, noun: "sequences",
   },
   charts: {
@@ -39,6 +39,7 @@ function JoinForm({ code, onJoined }: { code: string; onJoined: (token: string) 
   const [err, setErr] = useState<string | null>(null);
   const [nick, setNick] = useState("");
   const [consent, setConsent] = useState(true);
+  const [research, setResearch] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     api<{ title: string; joinable: boolean }>("GET", `/api/lookup/${encodeURIComponent(code)}`).then(setInfo).catch((e) => setErr(e.message));
@@ -46,7 +47,7 @@ function JoinForm({ code, onJoined }: { code: string; onJoined: (token: string) 
   const join = async () => {
     setBusy(true); setErr(null);
     try {
-      const r = await api<{ token: string }>("POST", "/api/join", { code, nickname: nick, consent });
+      const r = await api<{ token: string }>("POST", "/api/join", { code, nickname: nick, consent, researchConsent: research });
       onJoined(r.token);
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   };
@@ -57,13 +58,17 @@ function JoinForm({ code, onJoined }: { code: string; onJoined: (token: string) 
         <h1>{info?.title ?? "Join the activity"}</h1>
         {info && !info.joinable && <p className="alert">This activity is closed to new participants.</p>}
         {err && <p className="alert">{err}</p>}
-        <p className="muted">Three short perception and judgment activities (about 8 minutes). There are no trick questions and nothing is graded. You won't see answers until the instructor reveals them.</p>
+        <p className="muted">Three short perception and judgment activities (about 8 minutes). Nothing is graded. You won't see any answers until the instructor reveals them together at the end.</p>
         <label className="field">Nickname (shown to the instructor; may appear on an optional leaderboard)
           <input value={nick} maxLength={24} onChange={(e) => setNick(e.target.value)} placeholder="e.g. Blue Heron" autoFocus data-testid="nickname" onKeyDown={(e) => e.key === "Enter" && nick.trim() && join()} />
         </label>
         <label className="check">
           <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} data-testid="consent" />
           <span>Include my anonymous responses in the class statistics. (Optional — you can take part either way.)</span>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={research} onChange={(e) => setResearch(e.target.checked)} data-testid="research-consent" />
+          <span>Also allow my anonymous responses to be used for teaching research. (Optional, off by default.)</span>
         </label>
         <details className="privacy">
           <summary>How your responses are handled</summary>
@@ -120,17 +125,28 @@ function ParticipantSession({ code, token, onLost }: { code: string; token: stri
         {view.phase === "testing" && <Progress view={view} />}
       </header>
       {netIssue && <div className="banner warn">Connection problem — retrying. Your answers are safe.</div>}
+      {/* Instructor messages reach every student while the test is open, including those who have already finished. */}
+      {view.notice && (
+        <div className="banner notice" role="status" aria-live="polite" data-testid="notice" key={view.notice}>
+          <span className="notice-label">Message from your instructor</span> {view.notice}
+          {view.phase === "finished-waiting" && <span className="notice-done"> You've already finished — nothing more to do.</span>}
+        </div>
+      )}
       <main className="p-main">
         {view.phase === "lobby" && <Lobby view={view} token={token} onUpdate={setData} />}
         {view.phase === "testing" && view.current && <Testing view={view} busy={busy} onSubmit={submit} />}
         {view.phase === "finished-waiting" && (
-          <Waiting icon="✓" title="You've completed all the activities." text="Please wait while the rest of the class finishes." testId="finished-waiting" />
+          <Waiting icon="✓" title="You've completed all the activities." text="Please wait while the rest of the class finishes." testId="finished-waiting">
+            <Predict view={view} token={token} onUpdate={setData} />
+          </Waiting>
         )}
         {view.phase === "locked-waiting" && (
           <Waiting icon="🔒" title="Your responses have been submitted."
-            text="The activity is now closed. The instructor will discuss the phenomenon and reveal the results shortly. Please keep this page open."
+            text="The activity is now closed. The instructor will talk you through the activities and reveal the answers shortly. Please keep this page open."
             extra={!view.me.finished ? "You didn't reach the end of every activity — the parts you completed are saved." : undefined}
-            testId="locked-waiting" />
+            testId="locked-waiting">
+            <Predict view={view} token={token} onUpdate={setData} />
+          </Waiting>
         )}
         {view.phase === "results" && <Report token={token} />}
       </main>
@@ -215,13 +231,44 @@ function Testing({ view, busy, onSubmit }: { view: ParticipantView; busy: boolea
   );
 }
 
-function Waiting({ icon, title, text, extra, testId }: { icon: string; title: string; text: string; extra?: string; testId: string }) {
+function Waiting({ icon, title, text, extra, testId, children }: { icon: string; title: string; text: string; extra?: string; testId: string; children?: ReactNode }) {
   return (
     <div className="card center-card waiting" data-testid={testId}>
       <div className="big-icon">{icon}</div>
       <h2>{title}</h2>
       <p>{text}</p>
       {extra && <p className="muted">{extra}</p>}
+      {children}
+    </div>
+  );
+}
+
+/** A quick guess while waiting. After release, the report compares it with the truth. */
+function Predict({ view, token, onUpdate }: { view: ParticipantView; token: string; onUpdate: (v: ParticipantView) => void }) {
+  const keys = Object.keys(PREDICTION_QUESTIONS) as PredictionKey[];
+  const [draft, setDraft] = useState<Record<string, string>>(() => Object.fromEntries(keys.map((k) => [k, view.me.predictions[k]?.toString() ?? ""])));
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">(keys.every((k) => view.me.predictions[k] != null) ? "saved" : "idle");
+  const valid = keys.every((k) => draft[k] !== "" && Number.isInteger(Number(draft[k])) && Number(draft[k]) >= 0 && Number(draft[k]) <= PREDICTION_QUESTIONS[k].max);
+  const save = async () => {
+    setState("saving");
+    try {
+      const v = await api<ParticipantView>("POST", "/api/p/predict", Object.fromEntries(keys.map((k) => [k, Number(draft[k])])), { "x-participant-token": token });
+      onUpdate(v); setState("saved");
+    } catch { setState("error"); }
+  };
+  return (
+    <div className="predict" data-testid="predict">
+      <h3>While you wait: two quick guesses</h3>
+      {keys.map((k) => (
+        <label key={k} className="predict-row">{PREDICTION_QUESTIONS[k].label}
+          <input type="number" inputMode="numeric" min={0} max={PREDICTION_QUESTIONS[k].max} value={draft[k]} data-testid={`predict-${k}`}
+            onChange={(e) => { setDraft({ ...draft, [k]: e.target.value }); setState("idle"); }} />
+        </label>
+      ))}
+      <button className="btn primary" disabled={!valid || state === "saving"} onClick={save} data-testid="predict-save">
+        {state === "saved" ? "Saved ✓ (you can change it)" : state === "saving" ? "Saving…" : "Save my guesses"}
+      </button>
+      {state === "error" && <p className="alert small">Couldn't save — please try again.</p>}
     </div>
   );
 }

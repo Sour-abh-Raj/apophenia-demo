@@ -11,9 +11,10 @@ if (!passcode) {
   console.warn(`\n  INSTRUCTOR_PASSCODE is not set. A one-time passcode was generated for this run:\n\n      ${passcode}\n\n  Set INSTRUCTOR_PASSCODE in your environment (or .env) to choose your own.\n`);
 }
 
-const { app, hub } = createApp({ dbPath: DB_PATH, passcode, clientDir: resolve(process.env.CLIENT_DIR ?? "dist/client"), disableSse: process.env.DISABLE_SSE === "1" });
+const { app, hub } = createApp({ dbPath: DB_PATH, passcode, clientDir: resolve(process.env.CLIENT_DIR ?? "dist/client"), disableSse: process.env.DISABLE_SSE === "1",
+  publicUrl: process.env.PUBLIC_URL?.replace(/\/+$/, "") || undefined });
 const server = app.listen(PORT, () => {
-  console.log(`Apophenia Perception Lab listening on http://localhost:${PORT}`);
+  console.log(`Perception & Judgment Lab listening on http://localhost:${PORT}`);
   console.log(`  Instructor: http://localhost:${PORT}/host     Database: ${DB_PATH}`);
 });
 const shutdown = () => { hub.closeAll(); server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 2000).unref(); };

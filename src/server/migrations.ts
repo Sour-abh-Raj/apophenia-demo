@@ -73,4 +73,14 @@ CREATE TABLE audit_log (
 );
 `,
   },
+  {
+    version: 2,
+    name: "private ranking preview, finish-up notice, research consent, predictions",
+    sql: `
+ALTER TABLE sessions ADD COLUMN ranking_preview TEXT;          -- JSON RankingConfig shown only on the dashboard
+ALTER TABLE sessions ADD COLUMN notice TEXT;                   -- instructor's "please finish up" message (testing only)
+ALTER TABLE participants ADD COLUMN research_consent INTEGER NOT NULL DEFAULT 0;  -- separate, opt-in
+ALTER TABLE participants ADD COLUMN predictions TEXT;          -- JSON Predictions, asked while waiting
+`,
+  },
 ];

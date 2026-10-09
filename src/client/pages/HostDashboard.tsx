@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { Link, useParams } from "react-router-dom";
 import type { MetricDef } from "../../shared/scoring";
 import type { RankingConfig, RankingMode, SessionState, TaskId, WalkthroughPointer } from "../../shared/types";
-import { TASK_IDS, TASK_TITLES } from "../../shared/types";
+import { PREDICTION_QUESTIONS, TASK_IDS, TASK_TITLES, TASK_TITLES_DEBRIEF, type PredictionKey } from "../../shared/types";
 import { api, ApiError, hostKey, hostSessions, screenKeyStore, store } from "../api";
 import { num, pct } from "../components/Bars";
 import { Confirm } from "../components/Confirm";
@@ -19,16 +19,19 @@ interface ClassTask { n: number; means: Record<string, number | null>; confidenc
 interface HostData {
   session: {
     id: string; code: string; title: string; state: SessionState; walkthrough: WalkthroughPointer; projectorMode: string;
-    ranking: RankingConfig | null; discussionIndex: number; lockedAt: string | null;
+    ranking: RankingConfig | null; discussionIndex: number; lockedAt: string | null; notice: string | null; publicUrl: string | null;
   };
-  counts: { joined: number; takingTest: number; finished: number; incomplete: number; notFinishedYet: number; connected: number; disconnected: number; declined: number; excluded: number };
+  counts: { joined: number; notStarted: number; takingTest: number; finished: number; incomplete: number; notFinishedYet: number; connected: number; disconnected: number; declined: number; excluded: number };
+  unfinishedNames: string[];
+  predictions: Record<PredictionKey, { n: number; mean: number | null; median: number | null; truth: number; max: number }>;
   perTask: Record<TaskId, { started: number; completed: number }>;
   participants: PRow[];
   results: null | {
     classResults: Record<TaskId, ClassTask>; counts: Record<string, number>; computedAt: string;
     participants: { id: string; nickname: string; includedTasks: TaskId[]; scores: Record<TaskId, Record<string, number | null | boolean>> }[];
   };
-  ranking: null | { metricLabel: string; better: string; format: string; nRanked: number; rows: { rank: number; nickname: string; value: number }[] };
+  ranking: null | RankingView;
+  rankingPreview: null | RankingView;
   metrics: Record<TaskId, MetricDef[]>;
   walkthrough: null | {
     pointer: WalkthroughPointer; total: number; totalAll: number; item: WalkItem; reveal: RevealContent | null;
@@ -37,6 +40,8 @@ interface HostData {
   discussion: string[];
   conclusion: string[];
 }
+
+interface RankingView { metricLabel: string; better: string; format: string; nRanked: number; rows: { rank: number; nickname: string; value: number }[] }
 
 const STATE_LABEL: Record<SessionState, { label: string; tone: string; hint: string }> = {
   LOBBY: { label: "Lobby", tone: "neutral", hint: "Students can join. Nobody can start yet." },
@@ -86,7 +91,9 @@ function Dashboard({ sid, hkey }: { sid: string; hkey: string }) {
 
   const s = data.session, c = data.counts;
   const st = STATE_LABEL[s.state];
-  const joinUrl = `${window.location.origin}/j/${s.code}`;
+  const origin = s.publicUrl ?? window.location.origin;
+  const joinUrl = `${origin}/j/${s.code}`;
+  const localOnly = !s.publicUrl && /^(localhost|127\.|\[::1\])/.test(window.location.hostname);
   const screenKey = store.get(screenKeyStore(sid)) ?? hkey;
   const screenUrl = `${window.location.origin}/screen/${sid}?k=${encodeURIComponent(screenKey)}`;
   const completion = c.joined ? c.finished / c.joined : 0;
@@ -108,9 +115,15 @@ function Dashboard({ sid, hkey }: { sid: string; hkey: string }) {
         <div><span className="muted small">Join code</span><div className="join-code" data-testid="join-code">{s.code}</div></div>
         <div className="share-links">
           <CopyField label="Share in Zoom chat (students)" value={joinUrl} testId="join-url" />
+          {localOnly && (
+            <p className="alert small" data-testid="localhost-warning">
+              This dashboard is open on <b>{window.location.host}</b>, which students' devices cannot reach — the projector would show this address too.
+              Open the dashboard through your network address or tunnel URL (or set <code>PUBLIC_URL</code> in <code>.env</code>).
+            </p>
+          )}
           <div className="share-actions">
             <a className="btn" href={screenUrl} target="_blank" rel="noreferrer" data-testid="open-projector">Open projector view ↗</a>
-            <CopyButton label="Copy instructor link (other device)" value={`${window.location.origin}/host/${sid}#k=${encodeURIComponent(hkey)}`} />
+            <CopyButton label="Copy instructor link (other device)" value={`${origin}/host/${sid}#k=${encodeURIComponent(hkey)}`} testId="copy-host-link" />
           </div>
         </div>
       </section>
@@ -122,11 +135,13 @@ function Dashboard({ sid, hkey }: { sid: string; hkey: string }) {
 
       <section className="tiles host-tiles">
         <Tile label="Joined" value={c.joined} />
-        <Tile label="Taking test" value={c.takingTest} />
+        {s.state === "TESTING_OPEN" && <Tile label="Not started" value={c.notStarted} tone={c.notStarted ? "warn" : undefined} />}
+        <Tile label="Working" value={c.takingTest} />
         <Tile label="Finished" value={c.finished} tone="good" />
         <Tile label={s.state === "LOBBY" || s.state === "TESTING_OPEN" ? "Not finished yet" : "Incomplete"} value={s.state === "LOBBY" || s.state === "TESTING_OPEN" ? c.notFinishedYet : c.incomplete} tone="warn" />
         <Tile label="Disconnected" value={c.disconnected} tone={c.disconnected ? "warn" : undefined} />
         <Tile label="Opted out of stats" value={c.declined} />
+        {c.excluded > 0 && <Tile label="Excluded" value={c.excluded} />}
       </section>
       <div className="completion">
         <div className="completion-bar"><div style={{ width: `${completion * 100}%` }} /></div>
@@ -139,6 +154,7 @@ function Dashboard({ sid, hkey }: { sid: string; hkey: string }) {
         ))}
       </div>
 
+      {s.state === "TESTING_OPEN" && <NoticeControls data={data} call={call} />}
       {data.walkthrough && s.state === "ANSWER_WALKTHROUGH" && <WalkthroughControls data={data} call={call} />}
       {(s.state === "RESULTS_RELEASED" || s.state === "SESSION_CLOSED") && <ResultsControls data={data} call={call} />}
       {data.results && <PrivateResults data={data} />}
@@ -185,7 +201,7 @@ function PhaseControls({ data, setPending, transition, call }: {
         title: "Close test & lock responses?", label: "Close test & lock", danger: true, run: () => transition("lock"),
         body: <>
           <p><b>{c.finished}</b> of <b>{c.joined}</b> participants have finished.</p>
-          {c.notFinishedYet > 0 && <p className="alert">{c.notFinishedYet} participant(s) have not finished. Their completed activities are kept; unfinished activities are excluded from class averages.</p>}
+          {c.notFinishedYet > 0 && <p className="alert">{c.notFinishedYet} participant(s) have not finished: <b>{data.unfinishedNames.join(", ")}</b>. Their completed activities are kept; unfinished activities are excluded from class averages.</p>}
           <p>Students' screens will change to “waiting for results”. No answers or scores are shown. (You can re-open the test before starting the walkthrough.)</p>
         </>,
       })}>CLOSE TEST &amp; LOCK RESPONSES</button>;
@@ -218,12 +234,28 @@ function WalkthroughControls({ data, call }: { data: HostData; call: (m: string,
   const p = w.pointer;
   const go = (patch: Partial<WalkthroughPointer>) => void call("POST", "/walkthrough", patch).catch(() => undefined);
   const hkey = store.get(hostKey(data.session.id)) ?? "";
+  // Keyboard: → / ← move, Space or R reveals/hides, K toggles the answer key, 1–3 switch task.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA") || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "ArrowRight" && p.view === "item" && p.index < w.total - 1) go({ index: p.index + 1 });
+      else if (e.key === "ArrowLeft" && p.view === "item" && p.index > 0) go({ index: p.index - 1 });
+      else if ((e.key === " " || e.key.toLowerCase() === "r") && p.view === "item") go({ revealed: !p.revealed });
+      else if (e.key.toLowerCase() === "k") go({ view: p.view === "summary" ? "item" : "summary" });
+      else if (["1", "2", "3"].includes(e.key)) go({ task: TASK_IDS[Number(e.key) - 1] });
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <section className="card walk-ctl" data-testid="walkthrough-controls">
       <div className="walk-head">
         <h2>Answer walkthrough</h2>
         <div className="tabs">
-          {TASK_IDS.map((t) => <button key={t} className={`tab ${p.task === t ? "on" : ""}`} onClick={() => go({ task: t })} data-testid={`walk-task-${t}`}>{TASK_TITLES[t]}</button>)}
+          {TASK_IDS.map((t) => <button key={t} className={`tab ${p.task === t ? "on" : ""}`} onClick={() => go({ task: t })} data-testid={`walk-task-${t}`}>{TASK_TITLES_DEBRIEF[t]}</button>)}
         </div>
       </div>
       <div className="row wrap walk-bar">
@@ -234,10 +266,12 @@ function WalkthroughControls({ data, call }: { data: HostData; call: (m: string,
           <button className={`btn ${p.revealed ? "ghost" : "primary"}`} onClick={() => go({ revealed: !p.revealed })} data-testid="walk-reveal">{p.revealed ? "Hide answer" : "Reveal answer"}</button>
         )}
         <button className={`btn ${p.view === "summary" ? "primary" : "ghost"}`} onClick={() => go({ view: p.view === "summary" ? "item" : "summary" })} data-testid="walk-summary">
-          {p.view === "summary" ? "Back to items" : "Show full answer key"}
+          {p.view === "summary" ? "Back to items (answers hidden)" : "Reveal all answers (answer key)"}
         </button>
         <label className="check small"><input type="checkbox" checked={p.featuredOnly} onChange={(e) => go({ featuredOnly: e.target.checked, index: 0 })} /> Featured items only (shorter)</label>
+        <label className="check small"><input type="checkbox" checked={!!p.showClass} onChange={(e) => go({ showClass: e.target.checked })} data-testid="walk-show-class" /> Show how the class answered when revealing</label>
       </div>
+      <div className="muted small kbd-hint">Keys: <kbd>→</kbd>/<kbd>←</kbd> next/previous · <kbd>Space</kbd> reveal/hide · <kbd>K</kbd> answer key · <kbd>1</kbd>–<kbd>3</kbd> task</div>
       <div className="walk-body">
         <div className="walk-list">
           {w.list.map((it) => (
@@ -247,9 +281,14 @@ function WalkthroughControls({ data, call }: { data: HostData; call: (m: string,
           ))}
         </div>
         <div className="walk-preview">
-          <div className="muted small">On the projector now: {p.view === "summary" ? "full answer key for this task" : p.revealed ? "item + answer" : "item only (answer hidden)"}</div>
-          <ItemStage task={p.task} item={w.item} reveal={w.preview} assetKey={hkey} compact />
-          {!p.revealed && p.view === "item" && <div className="private-note">Private preview — the answer above is visible only to you until you click Reveal.</div>}
+          <div className={`proj-state ${p.view === "summary" || p.revealed ? "on" : ""}`} data-testid="proj-state">
+            Projector now: <b>{p.view === "summary" ? "ALL answers for this task (answer key)" : p.revealed ? "this item WITH its answer" : "this item, answer hidden"}</b>
+          </div>
+          {/* Mirrors the projector exactly: the answer appears here only when it is on the projector too. */}
+          <ItemStage task={p.task} item={w.item} reveal={p.view === "item" && p.revealed ? w.preview : null} assetKey={hkey} compact />
+          {p.view === "item" && !p.revealed && w.preview && (
+            <div className="private-note" data-testid="private-answer">Only you can see this: <b>{w.preview.truthLabel}</b> — {w.preview.headline}</div>
+          )}
         </div>
       </div>
     </section>
@@ -308,12 +347,39 @@ function ResultsControls({ data, call }: { data: HostData; call: (m: string, p: 
         <button className="btn primary" onClick={() => void call("POST", "/ranking", { config: cfg, show: true }).catch(() => undefined)} data-testid="rank-show">Show on projector</button>
         <button className="btn ghost" onClick={() => void call("POST", "/ranking", { config: null }).catch(() => undefined)} disabled={!s.ranking} data-testid="rank-hide">Hide rankings</button>
       </div>
-      {data.ranking && (
-        <div className="rank-preview">
-          <div className="muted small">{s.projectorMode === "rankings" ? "Showing on projector:" : "Private preview (not on projector):"} {data.ranking.metricLabel} · {data.ranking.nRanked} ranked</div>
-          <ol className="rank-list small">{data.ranking.rows.map((r) => <li key={r.nickname}><b>#{r.rank}</b> {r.nickname} — {data.ranking!.format === "pct" ? pct(r.value) : num(r.value)}</li>)}</ol>
-        </div>
-      )}
+      {data.rankingPreview && <RankBox title="Private preview (only you see this)" r={data.rankingPreview} testId="rank-private" />}
+      {data.ranking && s.projectorMode === "rankings" && <RankBox title="Showing on projector" r={data.ranking} testId="rank-onscreen" />}
+    </section>
+  );
+}
+
+function RankBox({ title, r, testId }: { title: string; r: RankingView; testId: string }) {
+  return (
+    <div className="rank-preview" data-testid={testId}>
+      <div className="muted small">{title}: {r.metricLabel} · {r.better} is better · {r.nRanked} ranked</div>
+      <ol className="rank-list small">{r.rows.map((x) => <li key={x.nickname}><b>#{x.rank}</b> {x.nickname} — {r.format === "pct" ? pct(x.value) : num(x.value)}</li>)}</ol>
+    </div>
+  );
+}
+
+/** "Please finish up" message on every student's screen while the test is open. */
+function NoticeControls({ data, call }: { data: HostData; call: (m: string, p: string, b?: unknown) => Promise<unknown> }) {
+  const PRESETS = ["About 2 minutes left — please finish the activity you're on.", "Last minute — please answer the remaining items quickly."];
+  const [text, setText] = useState(PRESETS[0]);
+  const cur = data.session.notice;
+  return (
+    <section className="card notice-ctl" data-testid="notice-controls">
+      <h3>Message to students <span className="muted small">(shown as a banner on their screens while they work)</span></h3>
+      <div className="row wrap">
+        <select value={PRESETS.includes(text) ? text : ""} onChange={(e) => e.target.value && setText(e.target.value)}>
+          {PRESETS.map((x) => <option key={x} value={x}>{x}</option>)}
+          <option value="">Custom…</option>
+        </select>
+        <input value={text} maxLength={140} onChange={(e) => setText(e.target.value)} className="grow" data-testid="notice-text" />
+        <button className="btn primary" onClick={() => void call("POST", "/notice", { text }).catch(() => undefined)} disabled={!text.trim()} data-testid="notice-send">Send</button>
+        {cur && <button className="btn ghost" onClick={() => void call("POST", "/notice", { text: "" }).catch(() => undefined)} data-testid="notice-clear">Clear</button>}
+      </div>
+      {cur && <p className="small">Showing now: <b>{cur}</b></p>}
     </section>
   );
 }
@@ -338,6 +404,7 @@ function PrivateResults({ data }: { data: HostData }) {
               );
             })}
           </div>
+          <p className="small">Guesses (included students): {(Object.keys(PREDICTION_QUESTIONS) as PredictionKey[]).map((k) => `${k} median ${data.predictions[k].median ?? "—"} vs truth ${data.predictions[k].truth} (n = ${data.predictions[k].n})`).join(" · ")}</p>
           <table className="ptable">
             <thead><tr><th>Nickname</th>{TASK_IDS.map((t) => <th key={t}>{TASK_TITLES[t]} acc · HR · FAR</th>)}</tr></thead>
             <tbody>{r.participants.map((p) => (
@@ -388,15 +455,44 @@ function ParticipantTable({ data, call }: { data: HostData; call: (m: string, p:
 function Tile({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return <div className={`tile ${tone ?? ""}`} data-testid={`tile-${label.toLowerCase().replace(/\s+/g, "-")}`}><span>{label}</span><b>{value}</b></div>;
 }
-function CopyButton({ label, value }: { label: string; value: string }) {
-  const [done, setDone] = useState(false);
-  return <button className="btn ghost" onClick={() => { void navigator.clipboard?.writeText(value); setDone(true); setTimeout(() => setDone(false), 1500); }}>{done ? "Copied ✓" : label}</button>;
+/**
+ * navigator.clipboard only exists on https:// and localhost, so on a plain-http network address it is
+ * undefined. Fall back to the older execCommand path, which works there, and report honestly if both fail.
+ */
+async function copyText(value: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(value); return true; }
+  } catch { /* fall through */ }
+  const ta = document.createElement("textarea");
+  ta.value = value;
+  ta.setAttribute("readonly", "");
+  ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+  document.body.appendChild(ta);
+  ta.select();
+  ta.setSelectionRange(0, value.length);
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { ok = false; }
+  document.body.removeChild(ta);
+  return ok;
+}
+
+function CopyButton({ label, value, testId }: { label: string; value: string; testId?: string }) {
+  const [state, setState] = useState<"idle" | "ok" | "fail">("idle");
+  const run = async () => {
+    setState((await copyText(value)) ? "ok" : "fail");
+    setTimeout(() => setState("idle"), 2500);
+  };
+  return (
+    <button className="btn ghost" onClick={() => void run()} data-testid={testId} title={state === "fail" ? value : undefined}>
+      {state === "ok" ? "Copied ✓" : state === "fail" ? "Couldn't copy — select the text and press Ctrl+C" : label}
+    </button>
+  );
 }
 function CopyField({ label, value, testId }: { label: string; value: string; testId?: string }) {
   return (
     <div className="copy-field">
       <span className="muted small">{label}</span>
-      <div className="row"><input readOnly value={value} onFocus={(e) => e.currentTarget.select()} data-testid={testId} /><CopyButton label="Copy" value={value} /></div>
+      <div className="row"><input readOnly value={value} onFocus={(e) => e.currentTarget.select()} data-testid={testId} /><CopyButton label="Copy" value={value} testId={testId ? `${testId}-copy` : undefined} /></div>
     </div>
   );
 }

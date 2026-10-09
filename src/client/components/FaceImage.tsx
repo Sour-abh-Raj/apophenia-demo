@@ -18,7 +18,7 @@ export function FaceImage({ src, marker, overlay, dots, onPick, className }: Pro
   };
   return (
     <div className={`face-img ${onPick ? "pickable" : ""} ${className ?? ""}`} onClick={click} data-testid="face-image">
-      <img src={src} alt="Visual noise stimulus" draggable={false} />
+      <img src={src} alt="Activity image" draggable={false} />
       <svg viewBox="0 0 100 100" preserveAspectRatio="none">
         {dots?.map((d, i) => <circle key={i} cx={d.x * 100} cy={d.y * 100} r={1.6} className="heat-dot" />)}
         {overlay && <ellipse cx={overlay.cx * 100} cy={overlay.cy * 100} rx={overlay.rx * 100 * 1.1} ry={overlay.ry * 100 * 1.05} className="face-ring" />}

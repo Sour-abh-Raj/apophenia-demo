@@ -62,7 +62,7 @@ export function SequenceTrial({ trial, busy, onSubmit }: TrialProps) {
       <p className="trial-q">20 coin flips, left to right, in two rows. <b>Fair coin, or a coin with a hidden rule?</b></p>
       <div className="seq-frame"><Coins flips={trial.stimulus.flips} size="lg" /></div>
       <div className="choice-row two">
-        <button className={`btn choice ${j === "random" ? "selected" : ""}`} onClick={() => setJ("random")} data-testid="judge-random">Fair, random coin</button>
+        <button className={`btn choice ${j === "random" ? "selected" : ""}`} onClick={() => setJ("random")} data-testid="judge-random">Fair coin</button>
         <button className={`btn choice ${j === "rule" ? "selected" : ""}`} onClick={() => setJ("rule")} data-testid="judge-rule">Hidden rule</button>
       </div>
       {j && <ConfidencePicker busy={busy} onPick={(c) => onSubmit({ judgment: j, confidence: c }, rt())} />}

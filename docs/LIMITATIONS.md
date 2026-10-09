@@ -1,0 +1,12 @@
+# Known limitations and unverified items
+
+1. **Original NPT stimuli not used.** figshare was unreachable from the build environment, so Task 1 uses newly generated faces-in-noise images (documented in `stimuli/README.md`). They follow the published construction principle, but their difficulty is calibrated only by the author's visual inspection, not by pilot data. Rehearse with a few colleagues and adjust contrasts in `generate_faces.py` if faces are far too easy or too hard on your projector or Zoom.
+2. **Literature verified via search records, not full texts.** Publisher sites and PMC were blocked. Details marked ★ in `docs/RESEARCH.md` should be checked against the original PDFs before academic citation.
+3. **Psychometric status.** None of the three tasks is a validated instrument in this form. With 12–20 trials per task, individual estimates are noisy; class-level patterns are the meaningful output.
+4. **Answer key in the repository.** `stimuli/*.json` contains the answers. Keep the repository private, or regenerate with different seeds (change `MASTER_SEED` in both generators) before a class whose students could find it.
+5. **Single-server design.** Live updates (Server-Sent Events plus polling fallback) and SQLite assume one server process. That is ample for a class of ~100. Do not run multiple replicas behind a load balancer.
+6. **Quick-tunnel limits.** Cloudflare quick tunnels (`trycloudflare.com`) are intended for testing and limit concurrent in-flight requests (reported limit: 200). Each open participant page holds one live connection. For large classes set `DISABLE_SSE=1` (pure polling every few seconds), or deploy to a host.
+7. **Zoom screen-share delay.** The projector updates within about 0.1 s locally, but Zoom adds its own latency.
+8. **Not tested here:** real Windows machines, real phones on cellular networks, Safari/iOS (Playwright tests used Chromium only), and a real Zoom session. The Windows instructions use standard Node/npm commands but were not executed on Windows. Do the rehearsal in the README.
+9. **Accessibility.** Buttons are keyboard-reachable and labelled, but the perceptual tasks themselves (faint faces, coin colours) are inherently visual. Students who cannot do them can simply watch the projector — joining is voluntary, and unfinished activities are excluded from class statistics.
+10. **`node:sqlite` is marked experimental in Node 22.** It is stable in practice and the warning is suppressed; a future Node release could change its API. Pin Node 22 LTS for class use.

@@ -1,0 +1,17 @@
+# Optional one-click deployment on Render (https://render.com). A persistent disk keeps the
+# SQLite database across restarts (disks require a paid instance type).
+services:
+  - type: web
+    name: apophenia-lab
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: INSTRUCTOR_PASSCODE
+        sync: false
+      - key: DATABASE_PATH
+        value: /data/lab.sqlite
+    disk:
+      name: lab-data
+      mountPath: /data
+      sizeGB: 1

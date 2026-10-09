@@ -1,0 +1,10 @@
+node_modules/
+dist/
+data/
+*.sqlite
+*.sqlite-*
+.env
+.e2e/
+test-results/
+playwright-report/
+__pycache__/

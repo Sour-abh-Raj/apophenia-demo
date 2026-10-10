@@ -106,3 +106,28 @@ test("notice reaches finished students and students on the last item; walkthroug
     await host.getByTestId("walk-summary").click();
   }
 });
+
+test("a distant student (400 ms latency) advances instantly and every answer is saved in order", async ({ browser }) => {
+  const { host, code } = await newHost(browser);
+  const p = await student(browser, code, "FarAway");
+  await host.getByTestId("action-open").click(); await host.getByTestId("confirm-btn").click();
+  const cdp = await p.context().newCDPSession(p);
+  await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 400, downloadThroughput: 1.5e6 / 8, uploadThroughput: 0.75e6 / 8 });
+  await p.getByTestId("start-practice").click();
+  const clicks = 14;
+  for (let i = 0; i < clicks; i++) {
+    if (await p.getByTestId("scored-intro").isVisible()) await p.getByTestId("start-scored").click();
+    const before = await p.locator(".trial-meta").innerText();
+    await p.waitForTimeout(700); // a very fast human: look, decide
+    await p.getByTestId("no-face").click();
+    const t = Date.now();
+    await p.getByTestId("conf-1").click();
+    await p.waitForFunction((prev) => (document.querySelector(".trial-meta") as HTMLElement | null)?.innerText !== prev || !!document.querySelector('[data-testid="scored-intro"]'), before);
+    if (i > 2) expect(Date.now() - t, `item ${i} should advance without waiting for the server`).toBeLessThan(400);
+  }
+  // all answers reach the server, in order, with nothing duplicated
+  await expect.poll(async () => p.evaluate(async () => {
+    const t = Object.entries(localStorage).find(([k]) => k.startsWith("apl:p:"))![1];
+    return (await (await fetch("/api/p/me", { headers: { "x-participant-token": t } })).json()).me.answered;
+  }), { timeout: 15000 }).toBe(clicks);
+});

@@ -408,7 +408,7 @@ describe("v2 classroom upgrades", () => {
 });
 
 describe("classroom capacity", () => {
-  it("a whole class behind one shared IP (campus Wi-Fi) can join without being rate-limited", async () => {
+  it("many students behind one shared IP (VPN, mobile carrier, shared network) can join without being rate-limited", async () => {
     const s = await newSession();
     const codes = await Promise.all(Array.from({ length: 150 }, (_, i) => req("POST", "/api/join", { code: s.code, nickname: `Student ${i}` }).then((r) => r.status)));
     expect(codes.filter((c) => c === 200)).toHaveLength(150);

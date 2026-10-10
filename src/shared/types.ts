@@ -80,6 +80,8 @@ export interface ParticipantView {
   current: TrialView | null;
   /** Prefetch hint for the following trial's stimulus (still no answer). */
   next: TrialView | null;
+  /** The next few trials' stimuli (no answers), used to advance instantly while answers save in the background. */
+  upcoming: TrialView[];
   /** progress per task: answered / total */
   progress: Record<TaskId, { answered: number; total: number }>;
 }

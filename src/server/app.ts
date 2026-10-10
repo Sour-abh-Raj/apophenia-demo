@@ -127,8 +127,8 @@ export function createApp(opts: AppOptions) {
     } catch (e) { next(e); }
   };
 
-  /* Simple fixed-window rate limiter for unauthenticated endpoints. Limits are generous because a whole
-     class on campus Wi-Fi often shares ONE public IP address. Old windows are pruned every minute. */
+  /* Simple fixed-window rate limiter for unauthenticated endpoints. Limits are generous because many students
+     can share ONE public IP address (VPNs, mobile carriers, shared networks). Old windows are pruned every minute. */
   const hits = new Map<string, { n: number; t: number }>();
   setInterval(() => { const cutoff = Date.now() - 60_000; for (const [k, h] of hits) if (h.t < cutoff) hits.delete(k); }, 60_000).unref();
   const limit = (max: number) => (req: Request, _res: Response, next: NextFunction) => {
@@ -160,6 +160,8 @@ export function createApp(opts: AppOptions) {
       phase,
       current: phase === "testing" ? trialView(order, p.cursor) : null,
       next: phase === "testing" ? trialView(order, p.cursor + 1) : null,
+      // A few items ahead (stimuli only, never answers) so the page can advance instantly for distant students.
+      upcoming: phase === "testing" ? [1, 2, 3, 4, 5].map((k) => trialView(order, p.cursor + k)).filter((t): t is NonNullable<typeof t> => !!t) : [],
       progress,
     };
   }

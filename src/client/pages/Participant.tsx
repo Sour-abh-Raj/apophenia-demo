@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import type { ParticipantView, PredictionKey, TaskId, TrialResponse } from "../../shared/types";
 import { PREDICTION_QUESTIONS, TASK_IDS, TASK_TITLES } from "../../shared/types";
@@ -91,29 +91,89 @@ function JoinForm({ code, onJoined }: { code: string; onJoined: (token: string) 
 function ParticipantSession({ code, token, onLost }: { code: string; token: string; onLost: () => void }) {
   const headers = { "x-participant-token": token };
   const fetcher = useCallback(() => api<ParticipantView>("GET", "/api/p/me", undefined, headers), [token]); // eslint-disable-line react-hooks/exhaustive-deps
-  const { data: view, setData, error } = useLive(fetcher, `/api/events?role=participant&t=${encodeURIComponent(token)}`, 6000);
+  const { data: serverView, setData, error, refresh } = useLive(fetcher, `/api/events?role=participant&t=${encodeURIComponent(token)}`, 6000);
   const [busy, setBusy] = useState(false);
   const [netIssue, setNetIssue] = useState(false);
-  usePrefetch(view?.next ?? null);
+  /*
+   * Optimistic advance: the next stimulus is already known (and preloaded), so after an answer the next item
+   * is shown immediately while answers are saved in order in the background. Students far from the server
+   * (e.g. 300–400 ms away) would otherwise wait ~0.7 s after every answer. The server still enforces order
+   * and de-duplicates retries, so this cannot skip or double-count anything.
+   */
+  const [local, setLocal] = useState<ParticipantView | null>(null);
+  const queue = useRef<{ trialKey: string; response: TrialResponse; rtMs: number }[]>([]);
+  const draining = useRef(false);
+  // Anything other than "testing" on the server (e.g. the instructor locked) always wins over local state.
+  const view = local && serverView?.phase === "testing" ? local : serverView;
+  usePrefetch(view?.upcoming ?? []);
 
   useEffect(() => { if (error instanceof ApiError && error.status === 401) onLost(); }, [error, onLost]);
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => { if (queue.current.length) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
 
-  const submit = async (r: TrialResponse, rtMs: number) => {
-    if (!view?.current) return;
-    setBusy(true);
-    const body = { trialKey: view.current.key, response: r, rtMs };
-    for (let attempt = 0; attempt < 6; attempt++) {
-      try {
-        const out = await api<{ view: ParticipantView }>("POST", "/api/p/respond", body, headers);
-        setData(out.view); setNetIssue(false); break;
-      } catch (e) {
-        if (e instanceof ApiError && e.body.view) { setData(e.body.view as ParticipantView); break; }
-        if (e instanceof ApiError && e.status < 500) break;
-        setNetIssue(true);
-        await new Promise((res) => setTimeout(res, 500 * 2 ** attempt)); // retries are safe: the server de-duplicates
+  const drain = async () => {
+    if (draining.current) return;
+    draining.current = true;
+    let last: ParticipantView | null = null;
+    while (queue.current.length) {
+      const body = queue.current[0];
+      let done = false;
+      for (let attempt = 0; !done; attempt++) {
+        try {
+          const out = await api<{ view: ParticipantView }>("POST", "/api/p/respond", body, headers);
+          last = out.view; done = true; setNetIssue(false);
+          // Merge the server's look-ahead into what is on screen, so the page can keep advancing instantly.
+          setLocal((cur) => {
+            if (!cur?.current) return cur;
+            const ahead = [out.view.current, ...out.view.upcoming].filter((t): t is NonNullable<typeof t> => !!t);
+            const at = ahead.findIndex((t) => t.key === cur.current!.key);
+            if (at < 0) return cur;
+            const upcoming = ahead.slice(at + 1);
+            return upcoming.length > cur.upcoming.length ? { ...cur, upcoming, next: upcoming[0] ?? null } : cur;
+          });
+        } catch (e) {
+          if (e instanceof ApiError && (e.body.view || e.status < 500)) {
+            // Out of sync (e.g. test locked, or answered on another tab): drop pending answers and resync.
+            queue.current = [];
+            if (e.body.view) setData(e.body.view as ParticipantView);
+            setLocal(null); setBusy(false); draining.current = false;
+            void refresh();
+            return;
+          }
+          setNetIssue(true);
+          await new Promise((res) => setTimeout(res, Math.min(8000, 500 * 2 ** attempt))); // retries are safe: the server de-duplicates
+        }
       }
+      queue.current.shift();
     }
+    draining.current = false;
+    if (last) setData(last);
+    setLocal(null);
     setBusy(false);
+  };
+
+  const submit = (r: TrialResponse, rtMs: number) => {
+    const v = view;
+    if (!v?.current || busy) return;
+    queue.current.push({ trialKey: v.current.key, response: r, rtMs });
+    if (v.upcoming.length) {
+      const task = v.current.task;
+      const [nextItem, ...rest] = v.upcoming;
+      setLocal({
+        ...v,
+        current: nextItem,
+        upcoming: rest,
+        next: rest[0] ?? null,
+        me: { ...v.me, answered: v.me.answered + 1 },
+        progress: { ...v.progress, [task]: { ...v.progress[task], answered: v.progress[task].answered + 1 } },
+      });
+    } else {
+      setBusy(true); // last item (or look-ahead used up): wait for the server before moving on
+    }
+    void drain();
   };
 
   if (!view) return <div className="page narrow"><div className="card"><p>{error ? error.message : "Connecting…"}</p></div></div>;

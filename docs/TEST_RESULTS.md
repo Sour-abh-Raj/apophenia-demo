@@ -7,7 +7,7 @@ Latest run: 2026-10-10, build container (Linux, Node 22.22.0, Playwright 1.56.1 
 | Type checking (client + server) | `npm run typecheck` | ✅ no errors |
 | Unit, stimulus-integrity, concealment and API-security tests | `npm test` | ✅ 46 / 46 passed |
 | Production build | `npm run build` | ✅ |
-| Browser tests: full class + regression checks | `npm run test:e2e` | ✅ 3 / 3 passed (≈1 min) |
+| Browser tests: full class + regression checks | `npm run test:e2e` | ✅ 4 / 4 passed (≈1.5 min) |
 | Render-like production run (`PORT`, `RENDER_EXTERNAL_URL`, no `.env`) | manual, see below | ✅ |
 | Load test: 80 students answering simultaneously | scripted | ✅ 3,840 answers in 6 s, 0 errors |
 
@@ -21,13 +21,16 @@ Latest run: 2026-10-10, build container (Linux, Node 22.22.0, Playwright 1.56.1 
 | API / JSON responses | uncompressed | gzip (live-update stream excluded so it still streams) |
 | Answer submission under an 80-student burst | — | p50 117 ms, p95 170 ms |
 | Locking + scoring 80 students | — | 25 ms |
+| Distant student (400 ms latency, 1.5 Mbps): answer → next item | 0.7–0.8 s | **0.25–0.4 s** (next items preloaded; answers saved in order in the background) |
+| Distant student: first page load / join → first task | — | 1.4 s / 1.3 s |
 
 ## What the automated tests cover
 
 - **Experimental integrity:** manifest vs files (420×420 WebP, opaque names); faces have in-bounds locations and private reveal images; regeneration from seeds reproduces the manifest exactly and the images exactly (or, with another libwebp build, to within 2/255 mean pixel difference); coin and chart generating processes, selection rules and stored statistics; scoring, d′, exact run probabilities, rankings and all disclosure modes.
 - **Concealment:** nothing students or the projector see before the walkthrough names or hints at the concept.
-- **Delayed reveal & security:** passcode; wrong/forged/cross-role/cross-session keys rejected; no answer-key or score fields in any student payload before release; no auto-lock; idempotent and ordered responses; lock/walkthrough/release gating; walkthrough starts hidden after every move; correct per-student and class figures with incomplete, opted-out and excluded students; rankings; CSV; reset/delete; reconnection; polling-only mode; **150 students joining from one IP**.
-- **Browser (real Chromium):** instructor + projector + three students through the whole class, including a mid-test reload and an incomplete student; network-level leak scan of every student response until release; copy buttons including the non-https fallback; the instructor notice reaching a finished student and a student on the last item; walkthrough reset on next / task switch / answer key / featured toggle / keyboard; the full answer key without overlap or horizontal scrolling at 1920×1080, 1280×720, 1024×768, 800×600 and phone width.
+- **Delayed reveal & security:** passcode; wrong/forged/cross-role/cross-session keys rejected; no answer-key or score fields in any student payload before release; no auto-lock; idempotent and ordered responses; lock/walkthrough/release gating; walkthrough starts hidden after every move; correct per-student and class figures with incomplete, opted-out and excluded students; rankings; CSV; reset/delete; reconnection; polling-only mode; **150 students joining from one shared IP**.
+- **Browser (real Chromium):** instructor + projector + three students through the whole class, including a mid-test reload and an incomplete student; network-level leak scan of every student response until release; copy buttons including the non-https fallback; the instructor notice reaching a finished student and a student on the last item; walkthrough reset on next / task switch / answer key / featured toggle / keyboard; the full answer key without overlap or horizontal scrolling at 1920×1080, 1280×720, 1024×768, 800×600 and phone width; a distant student (400 ms latency) advancing without waiting while every answer is stored in order.
+- **Production build as Render runs it:** fresh clone → `npm ci` → build → `npm prune --omit=dev` → start with `NODE_ENV=production`, Render's `PORT` and a not-yet-existing database folder; 30-student run with 0 errors. (The Docker image itself could not be built here: no Docker engine in the build environment.)
 
 ## Render-like production run (manual)
 

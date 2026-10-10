@@ -96,8 +96,9 @@ export function Trial(props: TrialProps) {
 }
 
 /** Preload the next image so trials advance instantly. */
-export function usePrefetch(next: TrialView | null) {
+export function usePrefetch(upcoming: TrialView[]) {
+  const keys = upcoming.map((t) => t.key).join(",");
   useEffect(() => {
-    if (next?.stimulus.kind === "face") { const img = new Image(); img.src = next.stimulus.imageUrl; }
-  }, [next?.key]); // eslint-disable-line react-hooks/exhaustive-deps
+    for (const t of upcoming) if (t.stimulus.kind === "face") { const img = new Image(); img.src = t.stimulus.imageUrl; }
+  }, [keys]); // eslint-disable-line react-hooks/exhaustive-deps
 }

@@ -87,16 +87,30 @@ Students need a public **https://** address that works from any network. There a
 
 ### Option A (recommended): Render, free
 
-Render runs the app exactly as it runs on your laptop and gives it a permanent address such as `https://perception-lab.onrender.com`. Everything is preconfigured in `render.yaml`.
+Render runs the app exactly as it runs on your laptop and gives it a permanent address that works for students anywhere in the world. In the Render dashboard click **New +** → **Web Service**, pick the `apophenia-demo` repository, and fill in the form like this:
 
-1. Go to <https://dashboard.render.com> and **sign up with GitHub** (free; no credit card).
-2. Click **New +** → **Blueprint** → connect/select the `apophenia-demo` repository (branch `main`).
-3. Render reads `render.yaml` and asks for **INSTRUCTOR_PASSCODE**: type the passcode you want to use in class.
-4. Click **Apply** / **Deploy Blueprint**. The first build takes about 3–5 minutes. When the log shows `listening on`, open `https://<your-service>.onrender.com/host`.
-5. Optional: the service name is the address students see. Keep it neutral (default `perception-lab`) — a name like "apophenia" would give the concept away.
+| Field | Value |
+|---|---|
+| Name | `perception-lab` (students see it in the address — keep it neutral; "apophenia" would give the concept away) |
+| Project | leave empty |
+| Language | **Docker** |
+| Branch | **`main`** |
+| Region | the one closest to most of your students (Singapore is fine for South/South-East Asia; students elsewhere still work) |
+| Root Directory | leave empty |
+| Instance type | **Free** |
+| Environment Variables | add **`INSTRUCTOR_PASSCODE`** = the passcode you'll type on the instructor page. Nothing else is needed (the port and public address are detected automatically). |
+| Health Check Path | **`/api/health`** |
+| Docker Build Context Directory | `.` |
+| Dockerfile Path | **`./Dockerfile`** |
+| Docker Command / Pre-Deploy Command | leave empty |
+| Auto-Deploy | On Commit |
+| Build Filters → Ignored Paths | optional: `docs/**`, `README.md`, `tests/**` (documentation changes then won't restart the server) |
+
+Click **Deploy Web Service**. The first build takes about 3–5 minutes; when the log shows `listening on`, open `https://<your-service>.onrender.com/host`. (Alternatively, **New +** → **Blueprint** reads the same settings from `render.yaml`.)
 
 What the free plan means for class day:
 
+- **Free hours are shared per workspace** (750 instance-hours a month across all your free services). If other free services in the same workspace stay awake all month, this one can be suspended when the pool runs out — check *Billing → Free usage* before class.
 - **It sleeps** after about 15 minutes without visits. The first visit afterwards takes 30–60 seconds while it wakes. **Open the site about 5 minutes before class** (the dashboard or the home page); once students are on it, it stays awake.
 - **Its disk is temporary.** Sessions and answers survive while the server is running, but are erased when it restarts or redeploys. So: create the session on class day (not the day before), **don't push code to GitHub during class** (every push redeploys), and **export the CSV right after class**. For permanent storage, switch to a paid instance with a disk and set `DATABASE_PATH` to a file on it.
 - Updates: every push to `main` redeploys automatically.

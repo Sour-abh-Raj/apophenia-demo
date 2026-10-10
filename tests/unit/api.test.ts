@@ -155,7 +155,7 @@ describe("full delayed-reveal protocol with three participants", () => {
     expect((await req("POST", `/api/host/${s.sessionId}/projector`, { mode: "results" }, s.H)).status).toBe(409);
     // Private reveal images are not served yet.
     const anyFace = (await import("../../stimuli/faces_manifest.json")).scored.find((e: { hasFace: boolean }) => e.hasFace)!;
-    expect((await req("GET", `/api/screen/${s.sessionId}/asset/${anyFace.id}-face.png?k=${s.screenKey}`)).status).toBe(403);
+    expect((await req("GET", `/api/screen/${s.sessionId}/asset/${anyFace.id}-face.webp?k=${s.screenKey}`)).status).toBe(403);
     // Cannot skip the walkthrough.
     expect((await act(s.sessionId, s.H, "releaseResults")).status).toBe(409);
 
@@ -173,7 +173,7 @@ describe("full delayed-reveal protocol with three participants", () => {
     // moving to the next item hides the answer again
     await req("POST", `/api/host/${s.sessionId}/walkthrough`, { index: 1 }, s.H);
     expect((await req("GET", `/api/screen/${s.sessionId}`, undefined, s.S)).json.walkthrough.reveal).toBeNull();
-    expect((await req("GET", `/api/screen/${s.sessionId}/asset/${anyFace.id}-face.png?k=${s.screenKey}`)).status).toBe(200);
+    expect((await req("GET", `/api/screen/${s.sessionId}/asset/${anyFace.id}-face.webp?k=${s.screenKey}`)).status).toBe(200);
     for (const p of [a, b, c]) expect((await req("GET", "/api/p/me", undefined, p.P)).json.phase).toBe("locked-waiting");
     expect((await req("GET", "/api/p/report", undefined, a.P)).status).toBe(403);
 
@@ -404,5 +404,13 @@ describe("v2 classroom upgrades", () => {
     expect(host.counts).toMatchObject({ joined: 1, notStarted: 1, takingTest: 0, notFinishedYet: 1, excluded: 1 });
     expect(host.participants).toHaveLength(2); // still listed so it can be re-included
     expect((await req("GET", `/api/screen/${s.sessionId}`, undefined, s.S)).json.counts.joined).toBe(1);
+  });
+});
+
+describe("classroom capacity", () => {
+  it("a whole class behind one shared IP (campus Wi-Fi) can join without being rate-limited", async () => {
+    const s = await newSession();
+    const codes = await Promise.all(Array.from({ length: 150 }, (_, i) => req("POST", "/api/join", { code: s.code, nickname: `Student ${i}` }).then((r) => r.status)));
+    expect(codes.filter((c) => c === 200)).toHaveLength(150);
   });
 });

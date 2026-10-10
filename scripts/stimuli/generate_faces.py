@@ -10,7 +10,9 @@ in a minority of images -- with procedurally rendered faces whose exact position
 is known. These are NOT the validated NPT stimuli.
 
 Reproducible: fixed seeds; `python3 scripts/stimuli/generate_faces.py` rewrites
-stimuli/faces/*.png and stimuli/faces_manifest.json byte-identically.
+stimuli/faces/*.webp and stimuli/faces_manifest.json. The manifest is byte-identical;
+image pixels match up to the WebP encoder (lossy, quality 90: mean change ~1.6/255 grey levels,
+invisible next to the noise SD of ~43 levels; chosen to make the images ~3x smaller for phones).
 
 Requires numpy + Pillow.
 """
@@ -105,9 +107,9 @@ def blur(img, k):
     return np.apply_along_axis(lambda c: np.convolve(c, g, mode="same"), 0, img)
 
 
-def to_png(arr, path):
+def to_image(arr, path):
     a = np.clip(arr * 255 + 0.5, 0, 255).astype(np.uint8)
-    Image.fromarray(a, "L").save(path, optimize=True)
+    Image.fromarray(a, "L").save(path, "WEBP", quality=90, method=6)
 
 
 def opaque_id(tag):
@@ -147,7 +149,7 @@ def main():
     os.makedirs(OUT_PUBLIC, exist_ok=True); os.makedirs(OUT_PRIVATE, exist_ok=True)
     for d in (OUT_PUBLIC, OUT_PRIVATE):
         for f in os.listdir(d):
-            if f.endswith(".png"):
+            if f.endswith((".png", ".webp")):
                 os.remove(os.path.join(d, f))
     rng = np.random.default_rng(MASTER_SEED)
 
@@ -175,19 +177,19 @@ def main():
         if spec: fi += 1
         img, layer, alpha, entry = make_stimulus(i, spec, rng)
         sid = opaque_id(f"scored-{i}")
-        to_png(img, os.path.join(OUT_PUBLIC, f"{sid}.png"))
+        to_image(img, os.path.join(OUT_PUBLIC, f"{sid}.webp"))
         if spec:
             # reveal image: the hidden face shown at high contrast without noise
-            to_png(np.clip(0.5 + 0.9 * alpha * layer, 0, 1), os.path.join(OUT_PRIVATE, f"{sid}-face.png"))
-        entry.update({"id": sid, "file": f"faces/{sid}.png", "index": i})
+            to_image(np.clip(0.5 + 0.9 * alpha * layer, 0, 1), os.path.join(OUT_PRIVATE, f"{sid}-face.webp"))
+        entry.update({"id": sid, "file": f"faces/{sid}.webp", "index": i})
         manifest["scored"].append(entry)
 
     # Practice: one clearly visible face and one noise-only image (not scored)
     for j, spec in enumerate([face(210, 205, 230, 1.0, "easy (practice)"), None]):
         img, layer, alpha, entry = make_stimulus(100 + j, spec, rng)
         sid = opaque_id(f"practice-{j}")
-        to_png(img, os.path.join(OUT_PUBLIC, f"{sid}.png"))
-        entry.update({"id": sid, "file": f"faces/{sid}.png", "index": j})
+        to_image(img, os.path.join(OUT_PUBLIC, f"{sid}.webp"))
+        entry.update({"id": sid, "file": f"faces/{sid}.webp", "index": j})
         manifest["practice"].append(entry)
 
     with open(os.path.join(STIM_DIR, "faces_manifest.json"), "w") as f:

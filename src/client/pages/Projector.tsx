@@ -262,7 +262,7 @@ function FacesResults({ c }: { c: ClassTask }) {
         <div className="pj-heat">
           {top.map((it) => (
             <figure key={it.itemId}>
-              <FaceImage src={`/stim/faces/${it.itemId}.png`} dots={clicks.filter((k) => k.itemId === it.itemId)} />
+              <FaceImage src={`/stim/faces/${it.itemId}.webp`} dots={clicks.filter((k) => k.itemId === it.itemId)} />
               <figcaption>Image {it.number}: {pct(it.pctSaidSignal)} said “face”</figcaption>
             </figure>
           ))}

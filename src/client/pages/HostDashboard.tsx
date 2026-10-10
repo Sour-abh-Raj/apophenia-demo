@@ -85,7 +85,9 @@ function Dashboard({ sid, hkey }: { sid: string; hkey: string }) {
   };
 
   if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
-    return <div className="page narrow"><div className="card"><h2>{error.status === 404 ? "Session not found (deleted?)" : "Instructor key rejected"}</h2><Link to="/host">Instructor home</Link></div></div>;
+    return <div className="page narrow"><div className="card"><h2>{error.status === 404 ? "This session no longer exists" : "Instructor key rejected"}</h2>
+      {error.status === 404 && <p>It was deleted, or the server restarted and its data was cleared (this happens on Render's free plan after a redeploy or restart). Create a new session and share the new code.</p>}
+      <Link to="/host">Instructor home</Link></div></div>;
   }
   if (!data) return <div className="page"><div className="card">Loading dashboard…</div></div>;
 

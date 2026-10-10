@@ -16,27 +16,29 @@ const faces = JSON.parse(readFileSync(join(STIM, "faces_manifest.json"), "utf8")
 const battery = JSON.parse(readFileSync(join(STIM, "battery.json"), "utf8"));
 const sha = (p: string) => createHash("sha256").update(readFileSync(p)).digest("hex");
 
-function pngSize(p: string) {
+/** Dimensions of a lossy WebP (RIFF / "VP8 " chunk) without decoding it. */
+function webpSize(p: string) {
   const b = readFileSync(p);
-  expect(b.subarray(1, 4).toString()).toBe("PNG");
-  return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  expect(b.subarray(0, 4).toString()).toBe("RIFF");
+  expect(b.subarray(8, 16).toString()).toBe("WEBPVP8 ");
+  return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff };
 }
 
 describe("faces-in-noise stimuli", () => {
-  it("has 20 scored images (5 faces, 15 noise) and 2 practice images, all present and 420×420", () => {
+  it("has 20 scored images (5 faces, 15 noise) and 2 practice images, all present and 420×420 WebP", () => {
     expect(faces.scored).toHaveLength(20);
     expect(faces.scored.filter((e: { hasFace: boolean }) => e.hasFace)).toHaveLength(5);
     expect(faces.practice).toHaveLength(2);
     for (const e of [...faces.scored, ...faces.practice]) {
       const p = join(STIM, e.file);
       expect(existsSync(p), p).toBe(true);
-      expect(pngSize(p)).toEqual({ w: 420, h: 420 });
+      expect(webpSize(p)).toEqual({ w: 420, h: 420 });
     }
   });
 
   it("every face item has a location inside the image and a private reveal image; noise items have none", () => {
     for (const e of faces.scored) {
-      const reveal = join(STIM, "private_faces", `${e.id}-face.png`);
+      const reveal = join(STIM, "private_faces", `${e.id}-face.webp`);
       if (e.hasFace) {
         expect(e.face.cx - e.face.rx).toBeGreaterThan(0);
         expect(e.face.cx + e.face.rx).toBeLessThan(1);
@@ -51,17 +53,27 @@ describe("faces-in-noise stimuli", () => {
   });
 
   it("public file names are opaque (no information about condition)", () => {
-    for (const e of faces.scored) expect(e.file).toMatch(/^faces\/[0-9a-f]{12}\.png$/);
+    for (const e of faces.scored) expect(e.file).toMatch(/^faces\/[0-9a-f]{12}\.webp$/);
     const publicFiles = readdirSync(join(STIM, "faces"));
     expect(publicFiles).toHaveLength(22);
   });
 
   const py = spawnSync("python3", ["-c", "import numpy, PIL"]);
-  it.skipIf(py.status !== 0)("regenerates byte-identically from the fixed seed", () => {
+  it.skipIf(py.status !== 0)("regenerates identically from the fixed seed", () => {
     const out = mkdtempSync(join(tmpdir(), "faces-"));
     execFileSync("python3", [join(ROOT, "scripts/stimuli/generate_faces.py")], { env: { ...process.env, STIMULI_OUT: out } });
-    expect(readFileSync(join(out, "faces_manifest.json"), "utf8")).toBe(readFileSync(join(STIM, "faces_manifest.json"), "utf8"));
-    for (const e of faces.scored) expect(sha(join(out, e.file))).toBe(sha(join(STIM, e.file)));
+    const lf = (f: string) => readFileSync(f, "utf8").replace(/\r\n/g, "\n");
+    expect(lf(join(out, "faces_manifest.json"))).toBe(lf(join(STIM, "faces_manifest.json")));
+    // Same libwebp => byte-identical. A different libwebp build may encode slightly differently,
+    // so fall back to comparing decoded pixels (the images themselves must be the same).
+    const differ = faces.scored.filter((e: { file: string }) => sha(join(out, e.file)) !== sha(join(STIM, e.file)));
+    if (differ.length) {
+      const cmp = "import sys,numpy as n;from PIL import Image as I;a,b=sys.argv[1:3];d=n.abs(n.asarray(I.open(a).convert('L'),int)-n.asarray(I.open(b).convert('L'),int));print(d.mean())";
+      for (const e of differ) {
+        const meanDiff = Number(execFileSync("python3", ["-c", cmp, join(out, e.file), join(STIM, e.file)]).toString());
+        expect(meanDiff).toBeLessThan(2);
+      }
+    }
   });
 });
 

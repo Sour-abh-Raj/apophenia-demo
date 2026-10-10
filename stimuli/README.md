@@ -2,8 +2,8 @@
 
 | File | What | Visibility |
 |---|---|---|
-| `faces/*.png` | 22 noise images (20 scored, 2 practice), opaque names | public (served at `/stim/faces/…`) |
-| `private_faces/*-face.png` | the 5 embedded faces without noise, for the reveal | instructor/projector key, only from the walkthrough phase |
+| `faces/*.webp` | 22 noise images (20 scored, 2 practice), opaque names | public (served at `/stim/faces/…`) |
+| `private_faces/*-face.webp` | the 5 embedded faces without noise, for the reveal | instructor/projector key, only from the walkthrough phase |
 | `faces_manifest.json` | **answer key** for Task 1 (face present, centre, radii, contrast) | server only |
 | `battery.json` | **answer key and data** for Tasks 2 and 3 (sequences, processes, chart data, categories, replication samples) | server only (chart points and flips are sent to participants one trial at a time, without labels) |
 
@@ -16,9 +16,9 @@
 
 ```bash
 npm run generate:battery            # deterministic; byte-identical to the committed file
-python3 scripts/stimuli/generate_faces.py   # needs numpy + Pillow; byte-identical output
+python3 scripts/stimuli/generate_faces.py   # needs numpy + Pillow (with WebP support)
 ```
-Both are verified by `tests/unit/stimuli.test.ts`.
+Both are verified by `tests/unit/stimuli.test.ts`. Images are stored as WebP (quality 90): about 3× smaller than PNG (0.7 MB vs 2.0 MB for all 22), with a mean pixel change of ~1.6/255 grey levels, far below the noise contrast (SD ≈ 43 levels), so the stimuli are perceptually unchanged.
 
 ## Using the original NPT images instead (optional)
 

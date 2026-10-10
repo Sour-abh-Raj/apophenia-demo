@@ -4,7 +4,7 @@ A live, multi-device web application for a 30-minute **Management Teaching Metho
 
 | Students (phone or laptop) | Instructor (private) | Projector (screen-shared in Zoom) |
 |---|---|---|
-| ![task](docs/screenshots/p-faces.png) | ![dashboard](docs/screenshots/host-walkthrough.png) | ![walkthrough](docs/screenshots/projector-walk-face.png) |
+| ![task](docs/screenshots/p-faces.webp) | ![dashboard](docs/screenshots/host-walkthrough.webp) | ![walkthrough](docs/screenshots/projector-walk-face.webp) |
 
 **The battery** (about 8 minutes; rationale in [docs/DESIGN.md](docs/DESIGN.md), literature in [docs/RESEARCH.md](docs/RESEARCH.md)):
 
@@ -83,9 +83,29 @@ The database is a single file, `data\lab.sqlite`. It is created automatically, a
 
 ## 3. Getting a shareable HTTPS URL
 
-Students on their own devices need a public **https://** address. Choose one option.
+Students need a public **https://** address that works from any network. There are two options.
 
-### Option A (recommended for a single class): your laptop + Cloudflare Tunnel (free, no account)
+### Option A (recommended): Render, free
+
+Render runs the app exactly as it runs on your laptop and gives it a permanent address such as `https://perception-lab.onrender.com`. Everything is preconfigured in `render.yaml`.
+
+1. Go to <https://dashboard.render.com> and **sign up with GitHub** (free; no credit card).
+2. Click **New +** → **Blueprint** → connect/select the `apophenia-demo` repository (branch `main`).
+3. Render reads `render.yaml` and asks for **INSTRUCTOR_PASSCODE**: type the passcode you want to use in class.
+4. Click **Apply** / **Deploy Blueprint**. The first build takes about 3–5 minutes. When the log shows `listening on`, open `https://<your-service>.onrender.com/host`.
+5. Optional: the service name is the address students see. Keep it neutral (default `perception-lab`) — a name like "apophenia" would give the concept away.
+
+What the free plan means for class day:
+
+- **It sleeps** after about 15 minutes without visits. The first visit afterwards takes 30–60 seconds while it wakes. **Open the site about 5 minutes before class** (the dashboard or the home page); once students are on it, it stays awake.
+- **Its disk is temporary.** Sessions and answers survive while the server is running, but are erased when it restarts or redeploys. So: create the session on class day (not the day before), **don't push code to GitHub during class** (every push redeploys), and **export the CSV right after class**. For permanent storage, switch to a paid instance with a disk and set `DATABASE_PATH` to a file on it.
+- Updates: every push to `main` redeploys automatically.
+
+Why not Vercel? Vercel runs code as short-lived serverless functions without a shared disk or long-lived connections. This app keeps one live session state, a database and an open connection to each student's screen, so on Vercel it would need an external database and a rewrite of the live updates. Render needs none of that.
+
+### Option B: your laptop + Cloudflare Tunnel (free, no account)
+
+Useful for rehearsing, or if Render is unavailable.
 
 1. Install cloudflared once, in PowerShell: `winget install --id Cloudflare.cloudflared`. Then close and reopen PowerShell.
 2. With `npm start` running in one PowerShell window, run this in a second window:
@@ -94,16 +114,10 @@ Students on their own devices need a public **https://** address. Choose one opt
    cloudflared tunnel --url http://localhost:3000
    ```
 
-3. It prints a URL such as `https://something-random.trycloudflare.com`. That is your class URL. Open **that** URL for everything (instructor, projector, students), so the join links on the dashboard are correct.
+3. It prints a URL such as `https://something-random.trycloudflare.com`. Put it in `.env` as `PUBLIC_URL=https://something-random.trycloudflare.com` (then restart `npm start`), or simply open the dashboard on **that** URL so the join links and QR code use it.
 4. Keep both windows open and stop your laptop from sleeping during class (Settings → System → Power).
 
-The quick-tunnel URL changes every time you restart cloudflared, so start it about 15 minutes before class and rehearse with the same URL. For classes larger than about 60 students, add `DISABLE_SSE=1` to `.env` (polling-only updates), because quick tunnels limit concurrent connections. ngrok works the same way (`ngrok http 3000`).
-
-### Option B: deploy to a host (stable URL)
-
-The repo includes a `Dockerfile` and a `render.yaml`. On **Render**: New → Blueprint → select this repository → set `INSTRUCTOR_PASSCODE`. It provisions a web service with a 1 GB persistent disk at `/data` (a paid instance type is needed for disks). Any Docker host with a persistent volume works: set `DATABASE_PATH` to a file on the volume. Run **one** instance only.
-
-Serverless platforms (e.g. Vercel, Netlify functions) are **not** suitable, because the app keeps live connections and a local database.
+The quick-tunnel URL changes every time you restart cloudflared. For classes larger than about 60 students, add `DISABLE_SSE=1` to `.env` (polling-only updates), because quick tunnels limit concurrent connections.
 
 ---
 
@@ -166,7 +180,9 @@ Do a full rehearsal a day before class, with your phone and one or two other dev
 | A student switched devices or used a private window | They cannot resume the old identity. They can rejoin as a new participant before you lock (use **Exclude** on the abandoned entry), or watch the projector. |
 | Your dashboard tab closed | Reopen `/host` → the session is listed under "Sessions on this browser"; or use the copied instructor link. |
 | Projector window closed | **Open projector view ↗** again. It always shows the current server state. |
-| The server or laptop restarted | Run `npm start` (and the tunnel) again. All data and the current phase are in `data/lab.sqlite`. If the tunnel URL changed, share the new link; students' identities are tied to the old address, so ask anyone mid-test to rejoin. |
+| The server or laptop restarted (laptop) | Run `npm start` (and the tunnel) again. All data and the current phase are in `data/lab.sqlite`. If the tunnel URL changed, share the new link; students' identities are tied to the old address, so ask anyone mid-test to rejoin. |
+| The Render server restarted (free plan) | The dashboard says "This session no longer exists": the temporary disk was cleared. Create a new session and share the new code; students rejoin. This is why you shouldn't push code during class. |
+| The site takes ~1 minute to open | The free Render server was asleep and is waking up. Wait; it then stays fast while people use it. |
 | You locked too early | **Re-open test** (only before the walkthrough). |
 | A test device or duplicate joined | **Exclude** in the participants table. Excluded people are kept out of averages and rankings, and aggregates are recomputed. |
 | Live updates seem stuck (corporate network/proxy) | Pages also poll every 4–6 s, so they still update. You can force polling-only with `DISABLE_SSE=1`. |
@@ -180,7 +196,7 @@ Do a full rehearsal a day before class, with your phone and one or two other dev
 | `INSTRUCTOR_PASSCODE` | *(random, printed at start-up)* | Required to create sessions. Set it in `.env` or your host's dashboard. **Never commit it.** |
 | `PORT` | `3000` | HTTP port |
 | `DATABASE_PATH` | `data/lab.sqlite` | SQLite file (must be on persistent storage when deployed) |
-| `PUBLIC_URL` | *(the address the dashboard is open on)* | Address students use, e.g. `http://192.168.1.20:3000` or your tunnel URL. Shown on the projector (with a QR code) and in the join link. |
+| `PUBLIC_URL` | *(on Render: detected automatically; otherwise the address the dashboard is open on)* | Address students use, e.g. `http://192.168.1.20:3000` or your tunnel URL. Shown on the projector (with a QR code) and in the join link. |
 | `DISABLE_SSE` | *(off)* | `1` = polling-only live updates (for connection-limited tunnels) |
 | `STIMULI_DIR` | `stimuli` | Location of stimulus files and answer keys |
 | `CLIENT_DIR` | `dist/client` | Built web client |

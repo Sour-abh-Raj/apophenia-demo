@@ -8,3 +8,9 @@ data/
 test-results/
 playwright-report/
 __pycache__/
+
+# local test runs, logs and recordings stay on your computer
+local-test/
+*.log
+*.webm
+*.mp4

@@ -12,7 +12,8 @@ if (!passcode) {
 }
 
 const { app, hub } = createApp({ dbPath: DB_PATH, passcode, clientDir: resolve(process.env.CLIENT_DIR ?? "dist/client"), disableSse: process.env.DISABLE_SSE === "1",
-  publicUrl: process.env.PUBLIC_URL?.replace(/\/+$/, "") || undefined });
+  // On Render, RENDER_EXTERNAL_URL (https://<name>.onrender.com) is provided automatically.
+  publicUrl: (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL)?.replace(/\/+$/, "") || undefined });
 const server = app.listen(PORT, () => {
   console.log(`Perception & Judgment Lab listening on http://localhost:${PORT}`);
   console.log(`  Instructor: http://localhost:${PORT}/host     Database: ${DB_PATH}`);

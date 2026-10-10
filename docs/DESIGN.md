@@ -25,7 +25,7 @@ Confidence is a single tap: Guessing (1), Fairly sure (2), Very sure (3).
 **Source paradigm.** Noise Pareidolia Test (Yokoi et al., 2014; Mamiya et al., 2016): 40 images, 8 with embedded faces, noise of 1/f³ spectral character.
 
 **Adaptation (must be labelled as such).**
-- **Stimuli are newly generated**, because the original figshare files could not be downloaded from the build environment. `scripts/stimuli/generate_faces.py` creates 420×420 greyscale images:
+- **Stimuli are newly generated**, because the original figshare files could not be downloaded from the build environment. `scripts/stimuli/generate_faces.py` creates 420×420 greyscale images (stored as WebP, quality 90, so they load fast on phones):
   - Noise: Gaussian amplitude spectrum ∝ 1/f^1.5 (power ∝ 1/f³) with random phases, z-scored, mean luminance 0.5, SD 0.17.
   - Faces: procedurally rendered, Lambert-shaded 3-D face height-maps with varied proportions and lighting (5 distinct faces). They are blurred and added to the noise through a soft elliptical mask at a fixed contrast. Difficulty levels: moderate (0.95, 0.88), hard (0.75, 0.72), very hard (0.60). These were calibrated by visual inspection so that faces are findable with effort but not obvious.
   - Exact face centre and ellipse radii are recorded in `stimuli/faces_manifest.json`.

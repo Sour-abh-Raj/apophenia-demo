@@ -1,47 +1,38 @@
 # Test record
 
-Run on 2026-10-09 in the build container (Linux, Node 22.22.0, Playwright 1.56.1 with its bundled Chromium (build 1194)).
+Latest run: 2026-10-10, build container (Linux, Node 22.22.0, Playwright 1.56.1 with its bundled Chromium).
 
 | Check | Command | Result |
 |---|---|---|
 | Type checking (client + server) | `npm run typecheck` | ✅ no errors |
-| Unit, stimulus-integrity and API-security tests | `npm test` | ✅ 34 / 34 passed |
+| Unit, stimulus-integrity, concealment and API-security tests | `npm test` | ✅ 46 / 46 passed |
 | Production build | `npm run build` | ✅ |
-| End-to-end class rehearsal (real browsers) | `npm run test:e2e` | ✅ 1 / 1 passed (≈55 s) |
-| Dev mode smoke test | `npm run dev` → `/api/health` via Vite proxy | ✅ |
-| `.env` loading | server started with only a `.env` file present | ✅ passcode read from `.env` |
+| Browser tests: full class + regression checks | `npm run test:e2e` | ✅ 3 / 3 passed (≈1 min) |
+| Render-like production run (`PORT`, `RENDER_EXTERNAL_URL`, no `.env`) | manual, see below | ✅ |
+| Load test: 80 students answering simultaneously | scripted | ✅ 3,840 answers in 6 s, 0 errors |
+
+## Performance (measured)
+
+| | Before | After |
+|---|---|---|
+| Face images a student downloads (22 images) | 2.0 MB PNG | **0.7 MB WebP** |
+| JavaScript a student downloads (gzip) | 113 KB (whole app) | **93 KB** (instructor/projector code split off) |
+| App files on repeat visits | revalidated hourly | cached for a year (content-hashed names); page shell always fresh |
+| API / JSON responses | uncompressed | gzip (live-update stream excluded so it still streams) |
+| Answer submission under an 80-student burst | — | p50 117 ms, p95 170 ms |
+| Locking + scoring 80 students | — | 25 ms |
 
 ## What the automated tests cover
 
-**Experimental integrity** (`tests/unit/stimuli.test.ts`, `scoring.test.ts`)
-- Every image in the manifest exists, is a 420×420 PNG and has opaque file names. Faces have in-bounds locations and private reveal images; noise items have neither.
-- Regeneration from the fixed seeds is **byte-identical** (Python face generator and TypeScript battery generator).
-- Coin sequences: 6/3/3 design; stored alternations, runs and head counts match the sequences; every item satisfies the pre-registered representativeness rule.
-- Charts: 4/4/4 design, 30 points each; stored sample and replication r match the data; cherry-picked nulls are stronger than typical nulls but do not replicate (|r| < .2), while planted relationships do (|r| > .35, correct sign).
-- Scoring: hits, misses, false alarms and correct rejections; rates only for complete tasks; localisation tolerance; per-category extras; log-linear d′; `normInv` against known quantiles; the exact longest-run probability against brute-force enumeration (including the 77 % figure quoted in the debrief).
-- Rankings: competition ranking with ties, metric direction, and all ten disclosure modes, including ties straddling a cut-off.
+- **Experimental integrity:** manifest vs files (420×420 WebP, opaque names); faces have in-bounds locations and private reveal images; regeneration from seeds reproduces the manifest exactly and the images exactly (or, with another libwebp build, to within 2/255 mean pixel difference); coin and chart generating processes, selection rules and stored statistics; scoring, d′, exact run probabilities, rankings and all disclosure modes.
+- **Concealment:** nothing students or the projector see before the walkthrough names or hints at the concept.
+- **Delayed reveal & security:** passcode; wrong/forged/cross-role/cross-session keys rejected; no answer-key or score fields in any student payload before release; no auto-lock; idempotent and ordered responses; lock/walkthrough/release gating; walkthrough starts hidden after every move; correct per-student and class figures with incomplete, opted-out and excluded students; rankings; CSV; reset/delete; reconnection; polling-only mode; **150 students joining from one IP**.
+- **Browser (real Chromium):** instructor + projector + three students through the whole class, including a mid-test reload and an incomplete student; network-level leak scan of every student response until release; copy buttons including the non-https fallback; the instructor notice reaching a finished student and a student on the last item; walkthrough reset on next / task switch / answer key / featured toggle / keyboard; the full answer key without overlap or horizontal scrolling at 1920×1080, 1280×720, 1024×768, 800×600 and phone width.
 
-**Delayed reveal and security** (`tests/unit/api.test.ts`), with three simulated participants plus a duplicate joiner:
-- Passcode required; wrong, forged and cross-role keys rejected (the projector key cannot act as host; a participant token cannot operate controls; one session's host key cannot read another session).
-- Lobby accepts no responses. During testing, **no participant payload** contains answer-key or score fields.
-- Everyone finishing does **not** change the session state. Reports return 403 before release, including during lock and walkthrough.
-- Duplicate submissions are idempotent; out-of-order submissions are refused; malformed responses are rejected.
-- Lock is idempotent, blocks late joins and responses, and computes results privately. The walkthrough cannot be skipped. Reveal images are blocked before the walkthrough.
-- The walkthrough starts hidden; each newly selected item starts hidden; no class statistics appear on the projector.
-- After release: correct individual rates for "always yes" and "always no" strategies; class means and n per task with an incomplete participant (faces n = 3, sequences n = 2); excluded participants are not counted; no other participant's data appears in a report.
-- Rankings are hidden by default; top-1 by false-alarm rate (lower is better) and tied bottom-1 are correct; invalid metrics are rejected.
-- CSV export is host-only and pseudonymous by default. Reset and delete work. Reconnection resumes progress. Trial order is randomised per participant over the same items. `DISABLE_SSE` returns 204.
+## Render-like production run (manual)
 
-**End-to-end** (`tests/e2e/classroom.spec.ts`): instructor, projector and three participants in separate browser contexts (independent storage = independent devices):
-- Unique participant IDs; live dashboard and projector counts.
-- A participant **reloads mid-test and resumes**; one participant stays incomplete.
-- No auto-lock after everyone finishes. Lock dialog lists the unfinished participant. All screens switch to the waiting message, with the "parts you completed are saved" note for the incomplete participant.
-- Walkthrough: items hidden until revealed; hidden-face image; sequence and chart reveals including the cherry-picked chart and replication; full answer key. Participants still waiting and no report visible.
-- **Network-level leak scan:** every `/api/p/*` response in all three browsers, from join until release, contained no answer-key or score fields.
-- Release: reports on all devices with correct n per task; projector class results (hit-rate mean 67 % = (1+0+1)/3); rankings hidden until shown, show/hide works; discussion; close → conclusion; reports remain.
-
-Screenshots from this run are in [`docs/screenshots/`](screenshots/).
+`PORT=10000 RENDER_EXTERNAL_URL=https://perception-lab.onrender.com npm start`: the page shell is served `no-cache`; hashed assets `max-age=31536000, immutable` and gzip; images `image/webp`; the dashboard's join link and QR use the Render URL automatically; Server-Sent Events stream uncompressed.
 
 ## Not verified here
 
-See [LIMITATIONS.md](LIMITATIONS.md): real Windows machines, iOS/Safari, real phones over cellular networks, a live Zoom screen share, and Cloudflare tunnel behaviour were not tested in this environment.
+See [LIMITATIONS.md](LIMITATIONS.md): an actual Render deployment (render.com is unreachable from the build environment), real Windows machines, iOS/Safari, phones on cellular networks and a live Zoom screen share. Do the rehearsal in the README once it is deployed.

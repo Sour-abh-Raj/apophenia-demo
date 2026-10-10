@@ -1,17 +1,20 @@
-# Optional one-click deployment on Render (https://render.com). A persistent disk keeps the
-# SQLite database across restarts (disks require a paid instance type).
+# Render Blueprint (https://render.com): New → Blueprint → pick this repository.
+# Free plan: no credit card. The service sleeps after ~15 min without visits (first visit then takes
+# ~30-60 s) and its disk is temporary, so data lives only until the next restart/redeploy:
+# open the site ~5 min before class and export the CSV at the end.
+# The service name becomes the student-facing URL, so keep it neutral (no hint of the concept).
 services:
   - type: web
-    name: apophenia-lab
-    runtime: docker
-    plan: starter
+    name: perception-lab
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
     healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
       - key: INSTRUCTOR_PASSCODE
-        sync: false
-      - key: DATABASE_PATH
-        value: /data/lab.sqlite
-    disk:
-      name: lab-data
-      mountPath: /data
-      sizeGB: 1
+        sync: false          # Render asks you for it during setup; never commit it
+      - key: NODE_VERSION
+        value: "22.22.0"   # the version this app is tested on

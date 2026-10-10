@@ -32,7 +32,7 @@ export function loadBattery(): Battery {
   if (cached) return cached;
   const faces = JSON.parse(readFileSync(resolve(STIMULI_DIR, "faces_manifest.json"), "utf8"));
   const bat = JSON.parse(readFileSync(resolve(STIMULI_DIR, "battery.json"), "utf8"));
-  const faceStim = (e: FaceManifestEntry): Stimulus => ({ kind: "face", imageUrl: `/stim/faces/${e.id}.png` });
+  const faceStim = (e: FaceManifestEntry): Stimulus => ({ kind: "face", imageUrl: `/stim/${e.file}` });
   const chartStim = (c: { x: Variable; y: Variable; points: [number, number][] }): Stimulus => ({ kind: "chart", x: c.x, y: c.y, points: c.points });
   cached = {
     practice: {
@@ -154,7 +154,7 @@ export function revealContent(task: TaskId, itemId: string, assetBase: string): 
         ],
         facts: [{ label: "Difficulty", value: k.face.difficulty }, { label: "Embedding contrast", value: k.face.contrast.toFixed(2) }],
         faceOverlay: { cx: k.face.cx, cy: k.face.cy, rx: k.face.rx, ry: k.face.ry },
-        faceImageUrl: `${assetBase}/${k.id}-face.png`,
+        faceImageUrl: `${assetBase}/${k.id}-face.webp`,
       };
     }
     return {

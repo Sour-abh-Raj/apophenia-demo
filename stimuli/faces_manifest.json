@@ -15,13 +15,13 @@
         "difficulty": "easy (practice)"
       },
       "id": "57a8e9868f2f",
-      "file": "faces/57a8e9868f2f.png",
+      "file": "faces/57a8e9868f2f.webp",
       "index": 0
     },
     {
       "hasFace": false,
       "id": "1621d93f94ed",
-      "file": "faces/1621d93f94ed.png",
+      "file": "faces/1621d93f94ed.webp",
       "index": 1
     }
   ],
@@ -29,13 +29,13 @@
     {
       "hasFace": false,
       "id": "45f2affa6671",
-      "file": "faces/45f2affa6671.png",
+      "file": "faces/45f2affa6671.webp",
       "index": 0
     },
     {
       "hasFace": false,
       "id": "fe6c444b6c6e",
-      "file": "faces/fe6c444b6c6e.png",
+      "file": "faces/fe6c444b6c6e.webp",
       "index": 1
     },
     {
@@ -49,25 +49,25 @@
         "difficulty": "moderate"
       },
       "id": "1d8713679ca4",
-      "file": "faces/1d8713679ca4.png",
+      "file": "faces/1d8713679ca4.webp",
       "index": 2
     },
     {
       "hasFace": false,
       "id": "77d7135fab73",
-      "file": "faces/77d7135fab73.png",
+      "file": "faces/77d7135fab73.webp",
       "index": 3
     },
     {
       "hasFace": false,
       "id": "62fc32f00d1d",
-      "file": "faces/62fc32f00d1d.png",
+      "file": "faces/62fc32f00d1d.webp",
       "index": 4
     },
     {
       "hasFace": false,
       "id": "f003261aaa4b",
-      "file": "faces/f003261aaa4b.png",
+      "file": "faces/f003261aaa4b.webp",
       "index": 5
     },
     {
@@ -81,31 +81,31 @@
         "difficulty": "hard"
       },
       "id": "3a9d2617f702",
-      "file": "faces/3a9d2617f702.png",
+      "file": "faces/3a9d2617f702.webp",
       "index": 6
     },
     {
       "hasFace": false,
       "id": "4429a0892f3d",
-      "file": "faces/4429a0892f3d.png",
+      "file": "faces/4429a0892f3d.webp",
       "index": 7
     },
     {
       "hasFace": false,
       "id": "ec555069289a",
-      "file": "faces/ec555069289a.png",
+      "file": "faces/ec555069289a.webp",
       "index": 8
     },
     {
       "hasFace": false,
       "id": "1054adfc7d54",
-      "file": "faces/1054adfc7d54.png",
+      "file": "faces/1054adfc7d54.webp",
       "index": 9
     },
     {
       "hasFace": false,
       "id": "940353d7414d",
-      "file": "faces/940353d7414d.png",
+      "file": "faces/940353d7414d.webp",
       "index": 10
     },
     {
@@ -119,19 +119,19 @@
         "difficulty": "hard"
       },
       "id": "17cbf59ca4e5",
-      "file": "faces/17cbf59ca4e5.png",
+      "file": "faces/17cbf59ca4e5.webp",
       "index": 11
     },
     {
       "hasFace": false,
       "id": "f0daa9250e92",
-      "file": "faces/f0daa9250e92.png",
+      "file": "faces/f0daa9250e92.webp",
       "index": 12
     },
     {
       "hasFace": false,
       "id": "f389c08bdeff",
-      "file": "faces/f389c08bdeff.png",
+      "file": "faces/f389c08bdeff.webp",
       "index": 13
     },
     {
@@ -145,25 +145,25 @@
         "difficulty": "moderate"
       },
       "id": "0dcf4a3ba6bf",
-      "file": "faces/0dcf4a3ba6bf.png",
+      "file": "faces/0dcf4a3ba6bf.webp",
       "index": 14
     },
     {
       "hasFace": false,
       "id": "2ac1557783e7",
-      "file": "faces/2ac1557783e7.png",
+      "file": "faces/2ac1557783e7.webp",
       "index": 15
     },
     {
       "hasFace": false,
       "id": "aa6d24abdc60",
-      "file": "faces/aa6d24abdc60.png",
+      "file": "faces/aa6d24abdc60.webp",
       "index": 16
     },
     {
       "hasFace": false,
       "id": "d06146af4038",
-      "file": "faces/d06146af4038.png",
+      "file": "faces/d06146af4038.webp",
       "index": 17
     },
     {
@@ -177,13 +177,13 @@
         "difficulty": "very hard"
       },
       "id": "8a1713db9609",
-      "file": "faces/8a1713db9609.png",
+      "file": "faces/8a1713db9609.webp",
       "index": 18
     },
     {
       "hasFace": false,
       "id": "602518fce8fe",
-      "file": "faces/602518fce8fe.png",
+      "file": "faces/602518fce8fe.webp",
       "index": 19
     }
   ]

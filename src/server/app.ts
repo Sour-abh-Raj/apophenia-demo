@@ -9,6 +9,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import compression from "compression";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { CONCLUSION_POINTS, DISCUSSION_QUESTIONS } from "../shared/content.js";
 import { METRICS } from "../shared/scoring.js";
@@ -62,6 +63,8 @@ export function createApp(opts: AppOptions) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", true);
+  // gzip everything except the live-update stream (compression would buffer Server-Sent Events).
+  app.use(compression({ filter: (req, res) => req.path !== "/api/events" && compression.filter(req, res) }));
   app.use(express.json({ limit: "32kb" }));
   app.use((_req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -124,8 +127,10 @@ export function createApp(opts: AppOptions) {
     } catch (e) { next(e); }
   };
 
-  /* simple fixed-window rate limiter for unauthenticated endpoints */
+  /* Simple fixed-window rate limiter for unauthenticated endpoints. Limits are generous because a whole
+     class on campus Wi-Fi often shares ONE public IP address. Old windows are pruned every minute. */
   const hits = new Map<string, { n: number; t: number }>();
+  setInterval(() => { const cutoff = Date.now() - 60_000; for (const [k, h] of hits) if (h.t < cutoff) hits.delete(k); }, 60_000).unref();
   const limit = (max: number) => (req: Request, _res: Response, next: NextFunction) => {
     const k = `${req.path}:${req.ip}`, t = Date.now();
     const h = hits.get(k);
@@ -274,16 +279,16 @@ export function createApp(opts: AppOptions) {
     return { sessionId: id, code, hostKey, screenKey };
   }));
 
-  app.get("/api/lookup/:code", limit(60), wrap((req) => {
+  app.get("/api/lookup/:code", limit(1200), wrap((req) => {
     const s = getSessionByCode(String(req.params.code));
-    if (!s) throw new HttpError(404, "No session with that code");
+    if (!s) throw new HttpError(404, "No session with that code. Check the code, or ask your instructor for the current link.");
     return { title: s.title, joinable: acceptsJoins(s.state), state: s.state };
   }));
 
-  app.post("/api/join", limit(30), wrap((req) => {
+  app.post("/api/join", limit(400), wrap((req) => {
     const { code, nickname, consent, researchConsent } = req.body ?? {};
     const s = typeof code === "string" ? getSessionByCode(code.trim()) : undefined;
-    if (!s) throw new HttpError(404, "No session with that code");
+    if (!s) throw new HttpError(404, "No session with that code. Check the code, or ask your instructor for the current link.");
     if (!acceptsJoins(s.state)) throw new HttpError(409, "This activity is closed to new participants");
     let nick = typeof nickname === "string" ? nickname.replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 24) : "";
     if (!nick) throw new HttpError(400, "Please choose a nickname");
@@ -597,7 +602,7 @@ export function createApp(opts: AppOptions) {
       const s = screenAuth(req);
       if (!atLeast(s.state, "ANSWER_WALKTHROUGH")) throw new HttpError(403, "Not available yet");
       const f = String(req.params.file);
-      if (!/^[0-9a-f]{12}-face\.png$/.test(f)) throw new HttpError(404, "Not found");
+      if (!/^[0-9a-f]{12}-face\.webp$/.test(f)) throw new HttpError(404, "Not found");
       const path = resolve(STIMULI_DIR, "private_faces", f);
       if (!existsSync(path)) throw new HttpError(404, "Not found");
       res.setHeader("Cache-Control", "private, max-age=3600");
@@ -627,8 +632,13 @@ export function createApp(opts: AppOptions) {
   /* ----------------------------------------------------------- static */
   app.use("/stim/faces", express.static(resolve(STIMULI_DIR, "faces"), { maxAge: "1h", index: false }));
   if (opts.clientDir && existsSync(opts.clientDir)) {
-    app.use(express.static(opts.clientDir, { index: false, maxAge: "1h" }));
-    app.get(/^\/(?!api\/|stim\/).*/, (_req, res) => res.sendFile(resolve(opts.clientDir!, "index.html")));
+    // Vite gives built files content-hashed names, so they can be cached "forever". The HTML shell must
+    // always be revalidated, otherwise a browser could keep loading an old version after a redeploy.
+    app.use(express.static(opts.clientDir, {
+      index: false,
+      setHeaders: (res, path) => res.setHeader("Cache-Control", /[\\/]assets[\\/]/.test(path) ? "public, max-age=31536000, immutable" : "no-cache"),
+    }));
+    app.get(/^\/(?!api\/|stim\/).*/, (_req, res) => { res.setHeader("Cache-Control", "no-cache"); res.sendFile(resolve(opts.clientDir!, "index.html")); });
   }
 
   app.use("/api", (_req, _res, next) => next(new HttpError(404, "Not found")));

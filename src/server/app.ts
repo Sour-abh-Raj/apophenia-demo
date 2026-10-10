@@ -157,6 +157,10 @@ export function createApp(opts: AppOptions) {
       me: { id: p.id, nickname: p.nickname, consent: p.consent === 1, researchConsent: p.research_consent === 1, finished, answered: p.cursor, total: order.length,
         predictions: parsePredictions(p.predictions) },
       notice: s.state === "TESTING_OPEN" ? s.notice : null,
+      // Changes whenever results are recomputed, so an open report refreshes itself.
+      resultsVersion: resultsVisibleToParticipants(s.state)
+        ? ((db.prepare("SELECT computed_at FROM results WHERE session_id = ?").get(s.id) as { computed_at: string } | undefined)?.computed_at ?? null)
+        : null,
       phase,
       current: phase === "testing" ? trialView(order, p.cursor) : null,
       next: phase === "testing" ? trialView(order, p.cursor + 1) : null,
@@ -403,6 +407,7 @@ export function createApp(opts: AppOptions) {
     const rankingPreview = s.ranking_preview && snap ? rankingFor(snap, JSON.parse(s.ranking_preview)) : null;
     return {
       session: { ...sessionMeta(s), notice: s.notice, publicUrl: opts.publicUrl ?? null },
+      projectorsConnected: hub.count(s.id, "screen"),
       counts, perTask, participants: rows, unfinishedNames, rankingPreview, predictions: predictionSummary(s.id),
       results: snap ? { classResults: snap.classResults, counts: snap.counts, computedAt: snap.computedAt,
         participants: Object.values(snap.participants).map((p) => ({
@@ -434,6 +439,8 @@ export function createApp(opts: AppOptions) {
         bump(s.id, fields);
         // Freeze the submission set and compute scores at lock time (stored privately; not displayed).
         if (action === "lock") storeSnapshot(s.id);
+        // Recompute at release so what students and the projector see reflects every change made since the lock.
+        if (action === "releaseResults") storeSnapshot(s.id);
         audit(s.id, action);
       });
       hub.notify(s.id, "all");
@@ -592,7 +599,7 @@ export function createApp(opts: AppOptions) {
     if (resultsVisibleToParticipants(s.state)) {
       const snap = getSnapshot(s.id)!;
       const ranking = s.ranking && s.projector_mode === "rankings" ? rankingFor(snap, JSON.parse(s.ranking)) : null;
-      return { ...base, results: { classResults: snap.classResults, counts: snap.counts }, predictions: predictionSummary(s.id), metrics: METRICS, ranking,
+      return { ...base, results: { classResults: snap.classResults, counts: snap.counts, computedAt: snap.computedAt }, predictions: predictionSummary(s.id), metrics: METRICS, ranking,
         discussion: DISCUSSION_QUESTIONS, conclusion: CONCLUSION_POINTS };
     }
     return base;

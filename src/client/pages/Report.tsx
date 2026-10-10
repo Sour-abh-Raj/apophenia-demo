@@ -51,12 +51,13 @@ const INTERPRET: Record<TaskId, string> = {
   charts: "A false alarm means calling an unrelated pair ‘real’. Cherry-picked charts are designed to look convincing — they show what searching through many variables produces.",
 };
 
-export function Report({ token }: { token: string }) {
+/** `version` changes whenever the server recomputes results, so an open report refreshes itself. */
+export function Report({ token, version }: { token: string; version?: string | null }) {
   const [data, setData] = useState<ReportData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    api<ReportData>("GET", "/api/p/report", undefined, { "x-participant-token": token }).then(setData).catch((e) => setErr(e.message));
-  }, [token]);
+    api<ReportData>("GET", "/api/p/report", undefined, { "x-participant-token": token }).then((d) => { setData(d); setErr(null); }).catch((e) => setErr(e.message));
+  }, [token, version]);
   if (err) return <div className="card"><p className="alert">{err}</p></div>;
   if (!data) return <div className="card"><p>Loading your results…</p></div>;
   return (

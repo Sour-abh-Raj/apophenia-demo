@@ -24,7 +24,7 @@ interface ScreenData {
     pointer: WalkthroughPointer; total: number; totalAll: number; item: WalkItem; reveal: RevealContent | null; classAnswer: ClassAnswer | null;
     summary: { notes: string[]; items: { number: number; stimulus: Stimulus; reveal: RevealContent | null }[] } | null;
   };
-  results?: { classResults: Record<TaskId, ClassTask>; counts: Record<string, number> };
+  results?: { classResults: Record<TaskId, ClassTask>; counts: Record<string, number>; computedAt?: string };
   predictions?: Record<PredictionKey, { n: number; mean: number | null; median: number | null; truth: number; max: number }>;
   metrics?: Record<TaskId, MetricDef[]>;
   ranking?: { metricLabel: string; better: string; format: string; nRanked: number; rows: { rank: number; nickname: string; value: number }[]; config: { task: TaskId } } | null;
@@ -48,7 +48,7 @@ export function ProjectorPage() {
   return (
     <div className={`projector mode-${s.state}`} data-testid="projector" data-state={s.state}>
       <header className="pj-header">
-        <span className="pj-title">{s.title}</span>
+        <span className="pj-title">{s.title} <span className="pj-code-tag" data-testid="pj-session-code">· {s.code}</span></span>
         <span className={`pj-mode pj-mode-${s.state}`}>{modeLabel(s.state, s.projectorMode)}</span>
       </header>
       <main className="pj-main">
@@ -177,6 +177,7 @@ function ClassResults({ data }: { data: ScreenData }) {
           <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>{t === "overview" ? "Overview" : t === "confidence" ? "Confidence" : TASK_TITLES_DEBRIEF[t as TaskId]}</button>
         ))}
       </nav>
+      <Freshness data={data} />
       {tab === "overview" && (
         <div className="pj-grid3">
           {TASK_IDS.map((t) => (
@@ -209,6 +210,14 @@ function ClassResults({ data }: { data: ScreenData }) {
       )}
     </div>
   );
+}
+
+/** Shows which data the numbers come from, so a stale window (e.g. from a rehearsal session) is obvious. */
+function Freshness({ data }: { data: ScreenData }) {
+  const r = data.results!;
+  const n = Math.max(...TASK_IDS.map((t) => r.classResults[t].n));
+  const at = r.computedAt ? new Date(r.computedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+  return <p className="pj-fresh" data-testid="pj-fresh">Session {data.session.code} · {n} student{n === 1 ? "" : "s"} included · results calculated at {at}</p>;
 }
 
 /** The three contrasts the debrief is built on, side by side on the first results screen. */

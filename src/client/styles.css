@@ -395,3 +395,10 @@ kbd { font: inherit; font-size: 0.8em; padding: 1px 6px; border: 1px solid #cbd5
 .notice-label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.75; }
 .notice-done { font-weight: 500; opacity: 0.85; }
 @keyframes notice-in { 0% { background: #a5b4fc; } 100% { background: #e0e7ff; } }
+
+/* projector freshness + session tag; dashboard projector status */
+.pj-code-tag { color: var(--p-muted); font-weight: 600; }
+.pj-fresh { color: var(--p-muted); font-size: 0.85rem; margin: 10px 0 14px; }
+.proj-status { font-size: 0.82rem; font-weight: 600; align-self: center; padding: 6px 10px; border-radius: 8px; }
+.proj-status.ok { background: #dcfce7; color: #166534; }
+.proj-status.none { background: #fef3c7; color: #92400e; }

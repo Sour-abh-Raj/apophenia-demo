@@ -76,6 +76,8 @@ export interface ParticipantView {
   me: { id: string; nickname: string; consent: boolean; researchConsent: boolean; finished: boolean; answered: number; total: number; predictions: Predictions };
   /** Instructor's "please finish up" notice, shown while testing. */
   notice: string | null;
+  /** Timestamp of the current results computation (after release); changes when results are recomputed. */
+  resultsVersion: string | null;
   phase: ParticipantPhase;
   current: TrialView | null;
   /** Prefetch hint for the following trial's stimulus (still no answer). */

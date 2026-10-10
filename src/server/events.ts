@@ -23,9 +23,10 @@ export class EventHub {
     client.res.on("close", () => {
       clearInterval(ping);
       this.clients.get(sessionId)?.delete(client);
-      if (client.role === "participant") this.notify(sessionId, "staff");
+      if (client.role !== "host") this.notify(sessionId, "staff");
     });
-    if (client.role === "participant") this.notify(sessionId, "staff");
+    // Participants and projector windows connecting/disconnecting change what the dashboard shows.
+    if (client.role !== "host") this.notify(sessionId, "staff");
   }
 
   /** Debounced per (session, audience) so a burst of answers produces one refresh. */
@@ -40,6 +41,13 @@ export class EventHub {
         c.res.write(`event: update\ndata: ${JSON.stringify({ v })}\n\n`);
       }
     }, audience === "all" ? 50 : 250));
+  }
+
+  /** Number of open live connections with a given role (e.g. projector windows showing this session). */
+  count(sessionId: string, role: Client["role"]): number {
+    let n = 0;
+    for (const c of this.clients.get(sessionId) ?? []) if (c.role === role) n++;
+    return n;
   }
 
   connectedParticipants(sessionId: string): Set<string> {

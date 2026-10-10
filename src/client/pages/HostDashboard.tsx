@@ -21,6 +21,8 @@ interface HostData {
     id: string; code: string; title: string; state: SessionState; walkthrough: WalkthroughPointer; projectorMode: string;
     ranking: RankingConfig | null; discussionIndex: number; lockedAt: string | null; notice: string | null; publicUrl: string | null;
   };
+  /** Open projector windows showing THIS session (0 = the window you are sharing may belong to another session). */
+  projectorsConnected?: number;
   counts: { joined: number; notStarted: number; takingTest: number; finished: number; incomplete: number; notFinishedYet: number; connected: number; disconnected: number; declined: number; excluded: number };
   unfinishedNames: string[];
   predictions: Record<PredictionKey, { n: number; mean: number | null; median: number | null; truth: number; max: number }>;
@@ -125,6 +127,9 @@ function Dashboard({ sid, hkey }: { sid: string; hkey: string }) {
           )}
           <div className="share-actions">
             <a className="btn" href={screenUrl} target="_blank" rel="noreferrer" data-testid="open-projector">Open projector view ↗</a>
+            <span className={`proj-status ${data.projectorsConnected ? "ok" : "none"}`} data-testid="projector-status">
+              {data.projectorsConnected ? `Projector for this session: open (${data.projectorsConnected})` : "No projector window open for this session — an older window may show another session"}
+            </span>
             <CopyButton label="Copy instructor link (other device)" value={`${origin}/host/${sid}#k=${encodeURIComponent(hkey)}`} testId="copy-host-link" />
           </div>
         </div>

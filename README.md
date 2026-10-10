@@ -197,6 +197,7 @@ Do a full rehearsal a day before class, with your phone and one or two other dev
 | The server or laptop restarted (laptop) | Run `npm start` (and the tunnel) again. All data and the current phase are in `data/lab.sqlite`. If the tunnel URL changed, share the new link; students' identities are tied to the old address, so ask anyone mid-test to rejoin. |
 | The Render server restarted (free plan) | The dashboard says "This session no longer exists": the temporary disk was cleared. Create a new session and share the new code; students rejoin. This is why you shouldn't push code during class. |
 | The site takes ~1 minute to open | The free Render server was asleep and is waking up. Wait; it then stays fast while people use it. |
+| The projector shows old or unexpected results | Check the projector header: it shows the session code and when the results were calculated. If the code isn't today's session, you are sharing a window from an earlier session (e.g. the rehearsal) — the dashboard says "No projector window open for this session". Click **Open projector view ↗** on today's dashboard and share that window. |
 | You locked too early | **Re-open test** (only before the walkthrough). |
 | A test device or duplicate joined | **Exclude** in the participants table. Excluded people are kept out of averages and rankings, and aggregates are recomputed. |
 | Live updates seem stuck (corporate network/proxy) | Pages also poll every 4–6 s, so they still update. You can force polling-only with `DISABLE_SSE=1`. |

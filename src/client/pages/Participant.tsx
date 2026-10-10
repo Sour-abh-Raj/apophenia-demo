@@ -208,7 +208,7 @@ function ParticipantSession({ code, token, onLost }: { code: string; token: stri
             <Predict view={view} token={token} onUpdate={setData} />
           </Waiting>
         )}
-        {view.phase === "results" && <Report token={token} />}
+        {view.phase === "results" && <Report token={token} version={view.resultsVersion} />}
       </main>
       <footer className="p-footer muted">Session {code}</footer>
     </div>
